@@ -16,6 +16,7 @@ import { SignalingServer } from './services/SignalingServer.js';
 import { SFUManager } from './services/SFUManager.js';
 import { RedisService } from './services/RedisService.js';
 import { AuthService } from './services/AuthService.js';
+import { RateLimiterService, DEFAULT_RATE_LIMIT_CONFIG } from './services/RateLimiterService.js';
 import { healthRouter } from './controllers/health.js';
 
 async function main(): Promise<void> {
@@ -45,6 +46,13 @@ async function main(): Promise<void> {
   await sfuManager.initialize();
   logger.info('SFU Manager initialized');
 
+  // Initialize rate limiter
+  const rateLimiter = new RateLimiterService(
+    redisService.getClient(),
+    DEFAULT_RATE_LIMIT_CONFIG
+  );
+  logger.info('Rate limiter initialized');
+
   // Create WebSocket server
   const wss = new WebSocketServer({
     server,
@@ -57,7 +65,8 @@ async function main(): Promise<void> {
     wss,
     authService,
     sfuManager,
-    redisService
+    redisService,
+    rateLimiter
   );
 
   signalingServer.start();

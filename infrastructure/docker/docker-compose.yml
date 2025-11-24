@@ -41,6 +41,7 @@ services:
     working_dir: /var/www
     ports:
       - "8000:8000"
+    stop_grace_period: 30s
     environment:
       - APP_ENV=${APP_ENV:-production}
       - APP_KEY=${APP_KEY}
@@ -90,6 +91,7 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    stop_grace_period: 30s
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=3000
@@ -122,6 +124,7 @@ services:
       - "4000:4000"
       - "10000-10100:10000-10100/udp"
       - "10000-10100:10000-10100/tcp"
+    stop_grace_period: 30s
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=4000
@@ -231,6 +234,7 @@ services:
     container_name: tradingroom-horizon
     restart: unless-stopped
     command: php artisan horizon
+    stop_grace_period: 60s
     environment:
       - APP_ENV=${APP_ENV:-production}
       - APP_KEY=${APP_KEY}

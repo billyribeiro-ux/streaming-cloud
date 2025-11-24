@@ -12,6 +12,7 @@ import { AuthService, AuthenticatedUser } from './AuthService.js';
 import { SFUManager } from './SFUManager.js';
 import { RedisService } from './RedisService.js';
 import { RoomManager } from './RoomManager.js';
+import { RateLimiterService } from './RateLimiterService.js';
 import {
   SignalingMessage,
   ClientMessage,
@@ -29,6 +30,7 @@ interface ConnectedClient {
   producerIds: Set<string>;
   consumerIds: Set<string>;
   lastPing: number;
+  ip: string;
 }
 
 export class SignalingServer {
@@ -40,7 +42,8 @@ export class SignalingServer {
     private wss: WebSocketServer,
     private authService: AuthService,
     private sfuManager: SFUManager,
-    private redisService: RedisService
+    private redisService: RedisService,
+    private rateLimiter: RateLimiterService
   ) {
     this.roomManager = new RoomManager(sfuManager, redisService);
   }
@@ -71,8 +74,23 @@ export class SignalingServer {
     logger.info('Signaling server shut down');
   }
 
-  private handleConnection(socket: WebSocket, request: any): void {
+  private async handleConnection(socket: WebSocket, request: any): Promise<void> {
     const clientId = uuidv4();
+
+    // Extract IP address
+    const ip =
+      request.headers['x-forwarded-for']?.split(',')[0].trim() ||
+      request.headers['x-real-ip'] ||
+      request.socket.remoteAddress ||
+      'unknown';
+
+    // Check connection rate limit
+    const rateLimitResult = await this.rateLimiter.checkConnection(ip);
+    if (!rateLimitResult.allowed) {
+      logger.warn({ ip, clientId }, 'Connection rate limit exceeded');
+      socket.close(1008, `Rate limit exceeded. Retry after ${rateLimitResult.retryAfter}s`);
+      return;
+    }
 
     const client: ConnectedClient = {
       id: clientId,
@@ -84,14 +102,31 @@ export class SignalingServer {
       producerIds: new Set(),
       consumerIds: new Set(),
       lastPing: Date.now(),
+      ip,
     };
 
     this.clients.set(clientId, client);
 
-    logger.info({ clientId }, 'Client connected');
+    logger.info({ clientId, ip }, 'Client connected');
 
     socket.on('message', async (data) => {
       try {
+        // Check message rate limit
+        const rateLimitResult = await this.rateLimiter.checkMessage(
+          clientId,
+          client.user?.id
+        );
+
+        if (!rateLimitResult.allowed) {
+          logger.warn({ clientId, userId: client.user?.id }, 'Message rate limit exceeded');
+          this.sendError(
+            client,
+            `Rate limit exceeded. Retry after ${rateLimitResult.retryAfter}s`,
+            'RATE_LIMIT_EXCEEDED'
+          );
+          return;
+        }
+
         const message = JSON.parse(data.toString()) as ClientMessage;
         await this.handleMessage(client, message);
       } catch (error) {
@@ -626,6 +661,12 @@ export class SignalingServer {
 
   private async cleanupClient(client: ConnectedClient): Promise<void> {
     await this.cleanupClientRoom(client);
+
+    // Reset rate limiters for this client
+    await this.rateLimiter.reset(client.id);
+    if (client.user) {
+      await this.rateLimiter.reset(client.user.id);
+    }
   }
 
   private async cleanupClientRoom(client: ConnectedClient): Promise<void> {
