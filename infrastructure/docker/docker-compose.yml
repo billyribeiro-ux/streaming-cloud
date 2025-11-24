@@ -1,0 +1,267 @@
+# =============================================================================
+# Trading Room SaaS - Docker Compose Configuration
+# =============================================================================
+# Development and Production deployment configuration
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Laravel Backend API
+  # ===========================================================================
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: ../infrastructure/docker/Dockerfile.backend
+    container_name: tradingroom-backend
+    restart: unless-stopped
+    working_dir: /var/www
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - APP_KEY=${APP_KEY}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      - APP_URL=${APP_URL}
+      - LOG_CHANNEL=stderr
+      - DB_CONNECTION=pgsql
+      - DB_HOST=${SUPABASE_DB_HOST}
+      - DB_PORT=5432
+      - DB_DATABASE=${SUPABASE_DB_NAME}
+      - DB_USERNAME=${SUPABASE_DB_USER}
+      - DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - STRIPE_KEY=${STRIPE_KEY}
+      - STRIPE_SECRET=${STRIPE_SECRET}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET=${R2_BUCKET}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - SIGNALING_URL=${SIGNALING_URL}
+      - SIGNALING_SECRET=${SIGNALING_SECRET}
+    depends_on:
+      - redis
+    volumes:
+      - backend-storage:/var/www/storage
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Node.js Signaling Server
+  # ===========================================================================
+  signaling:
+    build:
+      context: ../../signaling
+      dockerfile: ../infrastructure/docker/Dockerfile.signaling
+    container_name: tradingroom-signaling
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - SFU_NODES=${SFU_NODES}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    depends_on:
+      - redis
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Mediasoup SFU Node
+  # ===========================================================================
+  sfu:
+    build:
+      context: ../../sfu
+      dockerfile: ../infrastructure/docker/Dockerfile.sfu
+    container_name: tradingroom-sfu
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+      - "10000-10100:10000-10100/udp"
+      - "10000-10100:10000-10100/tcp"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=4000
+      - NODE_ID=${SFU_NODE_ID:-sfu-1}
+      - REDIS_URL=redis://redis:6379
+      - RTC_MIN_PORT=10000
+      - RTC_MAX_PORT=10100
+      - ANNOUNCED_IP=${SFU_ANNOUNCED_IP}
+      - MEDIASOUP_LOG_LEVEL=warn
+    depends_on:
+      - redis
+    networks:
+      - tradingroom-network
+    # Required for Mediasoup
+    cap_add:
+      - SYS_NICE
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # React Frontend (built and served by nginx)
+  # ===========================================================================
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: ../infrastructure/docker/Dockerfile.frontend
+      args:
+        - VITE_SUPABASE_URL=${SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+        - VITE_API_URL=${API_URL}
+        - VITE_SIGNALING_URL=${SIGNALING_WS_URL}
+    container_name: tradingroom-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - signaling
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Redis Cache & Message Queue
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: tradingroom-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Coturn TURN Server
+  # ===========================================================================
+  coturn:
+    image: coturn/coturn:latest
+    container_name: tradingroom-turn
+    restart: unless-stopped
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    network_mode: host
+    healthcheck:
+      test: ["CMD", "turnadmin", "-l"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Laravel Horizon (Queue Worker)
+  # ===========================================================================
+  horizon:
+    build:
+      context: ../../backend
+      dockerfile: ../infrastructure/docker/Dockerfile.backend
+    container_name: tradingroom-horizon
+    restart: unless-stopped
+    command: php artisan horizon
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - APP_KEY=${APP_KEY}
+      - DB_CONNECTION=pgsql
+      - DB_HOST=${SUPABASE_DB_HOST}
+      - DB_PORT=5432
+      - DB_DATABASE=${SUPABASE_DB_NAME}
+      - DB_USERNAME=${SUPABASE_DB_USER}
+      - DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+      - backend
+    networks:
+      - tradingroom-network
+
+  # ===========================================================================
+  # Laravel Scheduler
+  # ===========================================================================
+  scheduler:
+    build:
+      context: ../../backend
+      dockerfile: ../infrastructure/docker/Dockerfile.backend
+    container_name: tradingroom-scheduler
+    restart: unless-stopped
+    command: sh -c "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - APP_KEY=${APP_KEY}
+      - DB_CONNECTION=pgsql
+      - DB_HOST=${SUPABASE_DB_HOST}
+      - DB_PORT=5432
+      - DB_DATABASE=${SUPABASE_DB_NAME}
+      - DB_USERNAME=${SUPABASE_DB_USER}
+      - DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - REDIS_HOST=redis
+    depends_on:
+      - backend
+    networks:
+      - tradingroom-network
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  tradingroom-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  backend-storage:
+  redis-data:
