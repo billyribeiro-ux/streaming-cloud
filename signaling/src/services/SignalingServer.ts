@@ -13,6 +13,7 @@ import { SFUManager } from './SFUManager.js';
 import { RedisService } from './RedisService.js';
 import { RoomManager } from './RoomManager.js';
 import { RateLimiterService } from './RateLimiterService.js';
+import { TracingService, TraceContext } from './TracingService.js';
 import {
   SignalingMessage,
   ClientMessage,
@@ -31,6 +32,7 @@ interface ConnectedClient {
   consumerIds: Set<string>;
   lastPing: number;
   ip: string;
+  trace: TraceContext;
 }
 
 export class SignalingServer {
@@ -43,7 +45,8 @@ export class SignalingServer {
     private authService: AuthService,
     private sfuManager: SFUManager,
     private redisService: RedisService,
-    private rateLimiter: RateLimiterService
+    private rateLimiter: RateLimiterService,
+    private tracing: TracingService
   ) {
     this.roomManager = new RoomManager(sfuManager, redisService);
   }
@@ -84,10 +87,13 @@ export class SignalingServer {
       request.socket.remoteAddress ||
       'unknown';
 
+    // Start distributed trace
+    const trace = this.tracing.startTrace(request.headers);
+
     // Check connection rate limit
     const rateLimitResult = await this.rateLimiter.checkConnection(ip);
     if (!rateLimitResult.allowed) {
-      logger.warn({ ip, clientId }, 'Connection rate limit exceeded');
+      logger.warn({ ip, clientId, trace_id: trace.traceId }, 'Connection rate limit exceeded');
       socket.close(1008, `Rate limit exceeded. Retry after ${rateLimitResult.retryAfter}s`);
       return;
     }
@@ -103,11 +109,15 @@ export class SignalingServer {
       consumerIds: new Set(),
       lastPing: Date.now(),
       ip,
+      trace,
     };
 
     this.clients.set(clientId, client);
 
-    logger.info({ clientId, ip }, 'Client connected');
+    logger.info({ clientId, ip, trace_id: trace.traceId }, 'Client connected');
+
+    // Record WebSocket connection in trace
+    this.tracing.recordWebSocketEvent(trace.traceId, trace.spanId, 'connection', clientId);
 
     socket.on('message', async (data) => {
       try {

@@ -17,6 +17,7 @@ import { SFUManager } from './services/SFUManager.js';
 import { RedisService } from './services/RedisService.js';
 import { AuthService } from './services/AuthService.js';
 import { RateLimiterService, DEFAULT_RATE_LIMIT_CONFIG } from './services/RateLimiterService.js';
+import { TracingService } from './services/TracingService.js';
 import { healthRouter } from './controllers/health.js';
 
 async function main(): Promise<void> {
@@ -53,6 +54,10 @@ async function main(): Promise<void> {
   );
   logger.info('Rate limiter initialized');
 
+  // Initialize distributed tracing
+  const tracing = new TracingService(redisService);
+  logger.info('Distributed tracing initialized');
+
   // Create WebSocket server
   const wss = new WebSocketServer({
     server,
@@ -66,7 +71,8 @@ async function main(): Promise<void> {
     authService,
     sfuManager,
     redisService,
-    rateLimiter
+    rateLimiter,
+    tracing
   );
 
   signalingServer.start();
