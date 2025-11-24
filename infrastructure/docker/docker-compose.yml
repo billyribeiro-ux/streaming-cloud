@@ -6,6 +6,30 @@
 
 services:
   # ===========================================================================
+  # PgBouncer - Database Connection Pooling
+  # ===========================================================================
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: tradingroom-pgbouncer
+    restart: unless-stopped
+    ports:
+      - "6432:6432"
+    environment:
+      - DATABASE_URL=postgres://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:5432/${SUPABASE_DB_NAME}?sslmode=require
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=1000
+      - DEFAULT_POOL_SIZE=20
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
   # Laravel Backend API
   # ===========================================================================
   backend:
