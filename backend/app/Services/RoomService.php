@@ -34,6 +34,7 @@ class RoomService
         private readonly SignalingService $signalingService,
         private readonly SubscriptionService $subscriptionService,
         private readonly AuditService $auditService,
+        private readonly CacheService $cacheService,
     ) {}
 
     /**
@@ -255,6 +256,9 @@ class RoomService
         $room->increment('total_participants');
         $room->updatePeakParticipants();
 
+        // Invalidate participant cache
+        $this->cacheService->forget("room:{$room->id}:participants");
+
         // Dispatch event
         event(new ParticipantJoined($room, $participant, $user));
 
@@ -285,6 +289,9 @@ class RoomService
             'connection_state' => 'disconnected',
         ]);
 
+        // Invalidate participant cache
+        $this->cacheService->forget("room:{$room->id}:participants");
+
         // Notify signaling server
         $this->signalingService->removeParticipant($room, $user);
 
@@ -300,27 +307,32 @@ class RoomService
 
     /**
      * Get room participants with user details
+     * Uses multi-layer caching for performance
      */
     public function getParticipants(Room $room): array
     {
-        return $room->activeParticipants()
-            ->with(['user:id,email', 'user.profile:id,display_name,avatar_url'])
-            ->get()
-            ->map(function ($participant) {
-                return [
-                    'id' => $participant->id,
-                    'user_id' => $participant->user_id,
-                    'display_name' => $participant->user->profile?->display_name ?? $participant->user->email,
-                    'avatar_url' => $participant->user->profile?->avatar_url,
-                    'role' => $participant->role,
-                    'is_video_enabled' => $participant->is_video_enabled,
-                    'is_audio_enabled' => $participant->is_audio_enabled,
-                    'is_screen_sharing' => $participant->is_screen_sharing,
-                    'connection_quality' => $participant->connection_quality,
-                    'joined_at' => $participant->joined_at,
-                ];
-            })
-            ->toArray();
+        return $this->cacheService->remember(
+            "room:{$room->id}:participants",
+            5, // 5 second TTL (participants change frequently)
+            fn() => $room->activeParticipants()
+                ->with(['user:id,email', 'user.profile:id,display_name,avatar_url'])
+                ->get()
+                ->map(function ($participant) {
+                    return [
+                        'id' => $participant->id,
+                        'user_id' => $participant->user_id,
+                        'display_name' => $participant->user->profile?->display_name ?? $participant->user->email,
+                        'avatar_url' => $participant->user->profile?->avatar_url,
+                        'role' => $participant->role,
+                        'is_video_enabled' => $participant->is_video_enabled,
+                        'is_audio_enabled' => $participant->is_audio_enabled,
+                        'is_screen_sharing' => $participant->is_screen_sharing,
+                        'connection_quality' => $participant->connection_quality,
+                        'joined_at' => $participant->joined_at,
+                    ];
+                })
+                ->toArray()
+        );
     }
 
     /**
