@@ -6,6 +6,30 @@
 
 services:
   # ===========================================================================
+  # PgBouncer - Database Connection Pooling
+  # ===========================================================================
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: tradingroom-pgbouncer
+    restart: unless-stopped
+    ports:
+      - "6432:6432"
+    environment:
+      - DATABASE_URL=postgres://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:5432/${SUPABASE_DB_NAME}?sslmode=require
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=1000
+      - DEFAULT_POOL_SIZE=20
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
   # Laravel Backend API
   # ===========================================================================
   backend:
@@ -17,6 +41,7 @@ services:
     working_dir: /var/www
     ports:
       - "8000:8000"
+    stop_grace_period: 30s
     environment:
       - APP_ENV=${APP_ENV:-production}
       - APP_KEY=${APP_KEY}
@@ -66,6 +91,7 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    stop_grace_period: 30s
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=3000
@@ -98,6 +124,7 @@ services:
       - "4000:4000"
       - "10000-10100:10000-10100/udp"
       - "10000-10100:10000-10100/tcp"
+    stop_grace_period: 30s
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=4000
@@ -207,6 +234,7 @@ services:
     container_name: tradingroom-horizon
     restart: unless-stopped
     command: php artisan horizon
+    stop_grace_period: 60s
     environment:
       - APP_ENV=${APP_ENV:-production}
       - APP_KEY=${APP_KEY}
@@ -249,6 +277,40 @@ services:
     networks:
       - tradingroom-network
 
+  # ===========================================================================
+  # Jaeger - Distributed Tracing (OpenTelemetry)
+  # ===========================================================================
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: tradingroom-jaeger
+    restart: unless-stopped
+    ports:
+      - "5775:5775/udp"   # Zipkin compact thrift
+      - "6831:6831/udp"   # Jaeger compact thrift
+      - "6832:6832/udp"   # Jaeger binary thrift
+      - "5778:5778"       # Jaeger config server
+      - "16686:16686"     # Jaeger UI (http://localhost:16686)
+      - "14268:14268"     # Jaeger collector HTTP
+      - "14250:14250"     # Jaeger collector gRPC
+      - "9411:9411"       # Zipkin collector
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+      - LOG_LEVEL=info
+    volumes:
+      - jaeger-data:/badger
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:14269/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 # =============================================================================
 # Networks
 # =============================================================================
@@ -265,3 +327,4 @@ networks:
 volumes:
   backend-storage:
   redis-data:
+  jaeger-data:

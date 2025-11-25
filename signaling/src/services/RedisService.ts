@@ -39,6 +39,10 @@ export class RedisService {
     logger.info('Redis connected');
   }
 
+  getClient(): Redis | null {
+    return this.client;
+  }
+
   async disconnect(): Promise<void> {
     if (this.client) {
       await this.client.quit();
