@@ -1,7 +1,8 @@
 # =============================================================================
 # Trading Room SaaS - Docker Compose Configuration
 # =============================================================================
-# Development and Production deployment configuration
+# Development configuration by default. For production deployment,
+# set environment variables explicitly or use docker-compose.prod.yml
 # =============================================================================
 
 services:
@@ -43,9 +44,9 @@ services:
       - "8000:8000"
     stop_grace_period: 30s
     environment:
-      - APP_ENV=${APP_ENV:-production}
+      - APP_ENV=${APP_ENV:-development}
       - APP_KEY=${APP_KEY}
-      - APP_DEBUG=${APP_DEBUG:-false}
+      - APP_DEBUG=${APP_DEBUG:-true}
       - APP_URL=${APP_URL}
       - LOG_CHANNEL=stderr
       - DB_CONNECTION=pgsql
@@ -93,7 +94,7 @@ services:
       - "3000:3000"
     stop_grace_period: 30s
     environment:
-      - NODE_ENV=${NODE_ENV:-production}
+      - NODE_ENV=${NODE_ENV:-development}
       - PORT=3000
       - REDIS_URL=redis://redis:6379
       - SUPABASE_URL=${SUPABASE_URL}
@@ -126,7 +127,7 @@ services:
       - "10000-10100:10000-10100/tcp"
     stop_grace_period: 30s
     environment:
-      - NODE_ENV=${NODE_ENV:-production}
+      - NODE_ENV=${NODE_ENV:-development}
       - PORT=4000
       - NODE_ID=${SFU_NODE_ID:-sfu-1}
       - REDIS_URL=redis://redis:6379
@@ -236,7 +237,7 @@ services:
     command: php artisan horizon
     stop_grace_period: 60s
     environment:
-      - APP_ENV=${APP_ENV:-production}
+      - APP_ENV=${APP_ENV:-development}
       - APP_KEY=${APP_KEY}
       - DB_CONNECTION=pgsql
       - DB_HOST=${SUPABASE_DB_HOST}
@@ -263,7 +264,7 @@ services:
     restart: unless-stopped
     command: sh -c "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
     environment:
-      - APP_ENV=${APP_ENV:-production}
+      - APP_ENV=${APP_ENV:-development}
       - APP_KEY=${APP_KEY}
       - DB_CONNECTION=pgsql
       - DB_HOST=${SUPABASE_DB_HOST}
