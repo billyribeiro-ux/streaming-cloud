@@ -17,7 +17,7 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 │        │                  │                    │                           │
 │        ▼                  ▼                    ▼                           │
 │   ┌──────────────────────────────────────────────────────────────────┐    │
-│   │                       Supabase (Auth + Realtime + DB)            │    │
+│   │                    Neon (Serverless PostgreSQL)                  │    │
 │   └──────────────────────────────────────────────────────────────────┘    │
 │        │                                                                   │
 │        ▼                                                                   │
@@ -36,7 +36,7 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 - **Laravel Cashier** - Stripe Billing integration
 - **Laravel Sanctum** - API authentication
 - **Laravel Horizon** - Queue management
-- **PostgreSQL** via Supabase
+- **PostgreSQL** via Neon (Serverless)
 - **Redis** - Caching and queues
 
 ### Realtime & Media
@@ -127,7 +127,7 @@ streaming-cloud/
 ### Multi-Tenant Architecture
 - Organizations (tenants) with isolated data
 - Workspaces for team organization
-- Row-Level Security (RLS) via Supabase
+- Row-Level Security (RLS) via PostgreSQL policies
 - Role-based access control (Owner, Admin, Host, Co-Host, Moderator, Viewer)
 
 ### WebRTC Streaming
@@ -143,7 +143,7 @@ streaming-cloud/
 - API access for integrations
 
 ### Room Features
-- Real-time chat (Supabase Realtime)
+- Real-time chat (WebSocket)
 - Trading alerts and announcements
 - File uploads (Cloudflare R2)
 - Participant management
@@ -169,7 +169,7 @@ streaming-cloud/
 - Docker & Docker Compose
 - Node.js 20+
 - PHP 8.3+
-- Supabase account
+- Neon account (https://neon.tech)
 - Stripe account
 - Cloudflare account (for R2)
 
@@ -228,9 +228,9 @@ npm run dev
 ## API Documentation
 
 ### Authentication
-All API requests require authentication via Supabase JWT token:
+All API requests require authentication via JWT token:
 ```
-Authorization: Bearer <supabase-jwt-token>
+Authorization: Bearer <jwt-token>
 ```
 
 ### Key Endpoints
@@ -274,7 +274,7 @@ Authorization: Bearer <supabase-jwt-token>
 - **Horizontal**: Add more SFU nodes for increased capacity
 - **Load Balancing**: AWS ALB or Hetzner Load Balancer
 - **Redis Cluster**: For high-availability caching
-- **Read Replicas**: Supabase supports read replicas for scale
+- **Read Replicas**: Neon supports read replicas for scale
 
 ## Monitoring
 
@@ -296,7 +296,7 @@ Authorization: Bearer <supabase-jwt-token>
 
 - TLS 1.3 for all connections
 - DTLS/SRTP for WebRTC media encryption
-- JWT authentication via Supabase
+- JWT authentication with secure token validation
 - Row-Level Security for data isolation
 - Rate limiting on all endpoints
 - Input validation and sanitization
