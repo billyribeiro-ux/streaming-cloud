@@ -40,11 +40,11 @@
 
 ### Estimated Costs (Monthly)
 - **Hetzner Servers**: $52/month
-- **Supabase**: $0 (Free tier) or $25/month (Pro)
+- **Neon Database**: $0 (Free tier) or $19/month (Launch)
 - **Cloudflare R2**: ~$5-10/month (usage-based)
 - **Domain Name**: $10-15/year
 - **Stripe**: Transaction fees only (2.9% + $0.30)
-- **Total Base Cost**: ~$60-90/month
+- **Total Base Cost**: ~$60-85/month
 
 ---
 
@@ -78,66 +78,67 @@
 
 ---
 
-### Step 2: Supabase Setup (15 minutes)
+### Step 2: Neon Database Setup (10 minutes)
 
-**Purpose**: Database, Authentication, Realtime
+**Purpose**: Serverless PostgreSQL Database
+
+**Why Neon?**
+- Serverless PostgreSQL (scales to zero when not in use)
+- Database branching (like Git for your database)
+- Auto-scaling and instant provisioning
+- Generous free tier (0.5GB storage, 100 hours compute/month)
 
 1. **Sign up**:
-   - Go to: https://supabase.com
-   - Click "Start your project"
+   - Go to: https://neon.tech
+   - Click "Sign Up"
    - Sign in with GitHub (recommended)
 
-2. **Create Organization**:
-   - Organization name: `Trading Room`
-   - Click "Create organization"
-
-3. **Create Project**:
+2. **Create Project**:
    - Project name: `trading-room-production`
-   - Database Password: Generate strong password
-   - Region: Choose closest to your users
-   - Plan: Start with Free tier
-   - Click "Create new project"
-   - **Wait 2-3 minutes** for provisioning
+   - Region: Choose closest to your users (e.g., `aws-us-east-1`)
+   - Postgres version: `16` (latest stable)
+   - Click "Create project"
+   - **Instant provisioning** - no waiting!
 
-4. **Get API Keys**:
+3. **Get Connection String**:
    ```
-   Project Settings → API → Project API keys
+   Dashboard → Connection Details → Connection string
    ```
-   - Copy `Project URL`
-   - Copy `anon public` key
-   - Copy `service_role` key (secret - never expose to client!)
+   - Toggle "Show password" checkbox
+   - Copy the full connection string
+   - It looks like: `postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require`
 
-5. **Get Database Credentials**:
+4. **Get Individual Credentials** (optional):
    ```
-   Project Settings → Database → Connection string
+   Dashboard → Connection Details
    ```
-   - Copy `Host` (looks like: db.xxxxxxxxxxxx.supabase.co)
-   - Database name: `postgres`
-   - User: `postgres`
-   - Password: (the one you set in step 3)
+   - Host: `ep-xxx.region.aws.neon.tech`
+   - Database: `neondb`
+   - User: Your username
+   - Password: Your password
    - Port: `5432`
 
-6. **Get JWT Secret**:
+5. **Enable Pooling** (recommended for production):
    ```
-   Project Settings → API → JWT Settings → JWT Secret
+   Dashboard → Settings → Connection pooling
    ```
-   - Copy this secret
+   - Enable connection pooling
+   - Use pooled connection string for Laravel
 
-7. **Where to store**:
+6. **Where to store**:
    ```bash
    # Create secure file
-   touch ~/trading-room-secrets/supabase.env
-   chmod 600 ~/trading-room-secrets/supabase.env
+   touch ~/trading-room-secrets/database.env
+   chmod 600 ~/trading-room-secrets/database.env
 
    # Add to file:
-   SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
-   SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-   SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-   SUPABASE_JWT_SECRET=your-jwt-secret
-   SUPABASE_DB_HOST=db.xxxxxxxxxxxx.supabase.co
-   SUPABASE_DB_NAME=postgres
-   SUPABASE_DB_USER=postgres
-   SUPABASE_DB_PASSWORD=your-db-password
+   DATABASE_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+   DB_HOST=ep-xxx.region.aws.neon.tech
+   DB_NAME=neondb
+   DB_USER=your-username
+   DB_PASSWORD=your-password
+   DB_PORT=5432
+   DB_SSL=true
    ```
 
 ---

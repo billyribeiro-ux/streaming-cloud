@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   await redisService.connect();
   logger.info('Redis connected');
 
-  const authService = new AuthService(config.supabase);
+  const authService = new AuthService(config.database, config.jwtSecret);
   logger.info('Auth service initialized');
 
   const sfuManager = new SFUManager(config.sfu, redisService);
@@ -94,6 +94,9 @@ async function main(): Promise<void> {
 
     // Close all active connections
     await signalingServer.shutdown();
+
+    // Close database connections
+    await authService.close();
 
     // Close Redis
     await redisService.disconnect();

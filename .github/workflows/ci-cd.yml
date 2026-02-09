@@ -231,8 +231,6 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_SUPABASE_URL: https://example.supabase.co
-          VITE_SUPABASE_ANON_KEY: test-key
           VITE_API_URL: https://api.example.com
           VITE_SIGNALING_URL: wss://signaling.example.com
 

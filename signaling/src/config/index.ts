@@ -5,10 +5,14 @@
 
 import 'dotenv/config';
 
-export interface SupabaseConfig {
-  url: string;
-  serviceKey: string;
-  jwtSecret: string;
+export interface DatabaseConfig {
+  connectionString: string;
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  ssl: boolean;
 }
 
 export interface RedisConfig {
@@ -30,7 +34,7 @@ export interface CorsConfig {
 export interface Config {
   port: number;
   nodeEnv: string;
-  supabase: SupabaseConfig;
+  database: DatabaseConfig;
   redis: RedisConfig;
   sfu: SFUConfig;
   cors: CorsConfig;
@@ -46,10 +50,14 @@ export const config: Config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
 
-  supabase: {
-    url: process.env.SUPABASE_URL || '',
-    serviceKey: process.env.SUPABASE_SERVICE_KEY || '',
-    jwtSecret: process.env.SUPABASE_JWT_SECRET || '',
+  database: {
+    connectionString: process.env.DATABASE_URL || '',
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    database: process.env.DB_NAME || 'tradingroom',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+    ssl: process.env.DB_SSL === 'true',
   },
 
   redis: {

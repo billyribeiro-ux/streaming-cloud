@@ -132,8 +132,7 @@ class SecurityHeadersMiddleware
 
             // Connect: API endpoints
             sprintf(
-                "connect-src 'self' %s %s %s",
-                env('SUPABASE_URL', 'https://*.supabase.co'),
+                "connect-src 'self' %s %s",
                 env('SIGNALING_URL', 'wss://*.tradingroom.io'),
                 env('API_URL', 'https://api.tradingroom.io')
             ),

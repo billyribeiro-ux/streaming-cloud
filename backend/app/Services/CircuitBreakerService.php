@@ -52,7 +52,7 @@ class CircuitBreakerService
     /**
      * Execute callback with circuit breaker protection
      *
-     * @param string $serviceName Service identifier (e.g., 'stripe', 'supabase')
+     * @param string $serviceName Service identifier (e.g., 'stripe', 'database')
      * @param callable $callback Function to execute
      * @param callable|null $fallback Fallback function if circuit is open
      * @return mixed

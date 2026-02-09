@@ -16,7 +16,7 @@ services:
     ports:
       - "6432:6432"
     environment:
-      - DATABASE_URL=postgres://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:5432/${SUPABASE_DB_NAME}?sslmode=require
+      - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require
       - POOL_MODE=transaction
       - MAX_CLIENT_CONN=1000
       - DEFAULT_POOL_SIZE=20
@@ -50,19 +50,17 @@ services:
       - APP_URL=${APP_URL}
       - LOG_CHANNEL=stderr
       - DB_CONNECTION=pgsql
-      - DB_HOST=${SUPABASE_DB_HOST}
+      - DB_HOST=${DB_HOST}
       - DB_PORT=5432
-      - DB_DATABASE=${SUPABASE_DB_NAME}
-      - DB_USERNAME=${SUPABASE_DB_USER}
-      - DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - DB_DATABASE=${DB_NAME}
+      - DB_USERNAME=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - STRIPE_KEY=${STRIPE_KEY}
       - STRIPE_SECRET=${STRIPE_SECRET}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
       - R2_BUCKET=${R2_BUCKET}
@@ -97,8 +95,12 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       - PORT=3000
       - REDIS_URL=redis://redis:6379
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_SSL=true
       - JWT_SECRET=${JWT_SECRET}
       - SFU_NODES=${SFU_NODES}
       - CORS_ORIGINS=${CORS_ORIGINS}
@@ -160,8 +162,6 @@ services:
       context: ../../frontend
       dockerfile: ../infrastructure/docker/Dockerfile.frontend
       args:
-        - VITE_SUPABASE_URL=${SUPABASE_URL}
-        - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
         - VITE_API_URL=${API_URL}
         - VITE_SIGNALING_URL=${SIGNALING_WS_URL}
     container_name: tradingroom-frontend
@@ -240,11 +240,12 @@ services:
       - APP_ENV=${APP_ENV:-development}
       - APP_KEY=${APP_KEY}
       - DB_CONNECTION=pgsql
-      - DB_HOST=${SUPABASE_DB_HOST}
+      - DB_HOST=${DB_HOST}
       - DB_PORT=5432
-      - DB_DATABASE=${SUPABASE_DB_NAME}
-      - DB_USERNAME=${SUPABASE_DB_USER}
-      - DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - DB_DATABASE=${DB_NAME}
+      - DB_USERNAME=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     depends_on:
@@ -267,11 +268,12 @@ services:
       - APP_ENV=${APP_ENV:-development}
       - APP_KEY=${APP_KEY}
       - DB_CONNECTION=pgsql
-      - DB_HOST=${SUPABASE_DB_HOST}
+      - DB_HOST=${DB_HOST}
       - DB_PORT=5432
-      - DB_DATABASE=${SUPABASE_DB_NAME}
-      - DB_USERNAME=${SUPABASE_DB_USER}
-      - DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - DB_DATABASE=${DB_NAME}
+      - DB_USERNAME=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_HOST=redis
     depends_on:
       - backend
