@@ -145,6 +145,11 @@ class Room extends Model
         return $this->hasMany(RoomFile::class);
     }
 
+    public function recordings(): HasMany
+    {
+        return $this->hasMany(Recording::class);
+    }
+
     // =========================================================================
     // SCOPES
     // =========================================================================

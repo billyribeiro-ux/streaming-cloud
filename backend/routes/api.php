@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\AlertController;
+use App\Http\Controllers\Api\V1\AnalyticsController;
 use App\Http\Controllers\Api\V1\AuthController;
-use App\Http\Controllers\Api\V1\ChatController;
 use App\Http\Controllers\Api\V1\BillingController;
+use App\Http\Controllers\Api\V1\ChatController;
+use App\Http\Controllers\Api\V1\FileController;
 use App\Http\Controllers\Api\V1\RoomController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
@@ -88,5 +90,21 @@ Route::prefix('v1')->group(function () {
         Route::get('/rooms/{room}/alerts', [AlertController::class, 'index']);
         Route::post('/rooms/{room}/alerts', [AlertController::class, 'store']);
         Route::delete('/alerts/{alert}', [AlertController::class, 'destroy']);
+
+        // File management
+        Route::get('/rooms/{room}/files', [FileController::class, 'index']);
+        Route::post('/rooms/{room}/files', [FileController::class, 'upload']);
+        Route::delete('/files/{file}', [FileController::class, 'destroy']);
+        Route::get('/files/{file}', [FileController::class, 'download']);
+
+        // Recordings
+        Route::post('/rooms/{room}/recordings/start', [RoomController::class, 'startRecording']);
+        Route::post('/rooms/{room}/recordings/stop', [RoomController::class, 'stopRecording']);
+        Route::get('/rooms/{room}/recordings', [RoomController::class, 'recordings']);
+
+        // Analytics
+        Route::get('/analytics/dashboard', [AnalyticsController::class, 'dashboard']);
+        Route::get('/analytics/rooms/{room}', [AnalyticsController::class, 'roomStats']);
+        Route::get('/analytics/organization/{organization}', [AnalyticsController::class, 'organizationStats']);
     });
 });

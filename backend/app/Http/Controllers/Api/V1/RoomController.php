@@ -14,6 +14,7 @@ use App\Http\Resources\ParticipantResource;
 use App\Models\Organization;
 use App\Models\Room;
 use App\Models\Workspace;
+use App\Services\RecordingService;
 use App\Services\RoomService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,7 +31,8 @@ use Symfony\Component\HttpFoundation\Response;
 class RoomController extends Controller
 {
     public function __construct(
-        private readonly RoomService $roomService
+        private readonly RoomService $roomService,
+        private readonly RecordingService $recordingService,
     ) {}
 
     /**
@@ -423,5 +425,119 @@ class RoomController extends Controller
             ->get();
 
         return new RoomCollection($rooms);
+    }
+
+    /**
+     * Start recording
+     *
+     * Start recording the active session in a room.
+     *
+     * @response 200 scenario="Started" {
+     *   "data": {
+     *     "recording_id": "uuid",
+     *     "status": "recording",
+     *     "started_at": "2024-01-01T00:00:00+00:00"
+     *   },
+     *   "message": "Recording started"
+     * }
+     * @response 422 scenario="Not Live" {"message": "Room is not currently live"}
+     */
+    public function startRecording(Request $request, Room $room): JsonResponse
+    {
+        Gate::authorize('stream', $room);
+
+        if (!$room->isLive()) {
+            return response()->json([
+                'message' => 'Room is not currently live.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $session = $room->sessions()->whereNull('ended_at')->first();
+
+        if (!$session) {
+            return response()->json([
+                'message' => 'No active session found.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $result = $this->recordingService->startRecording($room, $session);
+
+        return response()->json([
+            'data' => $result,
+            'message' => 'Recording started',
+        ]);
+    }
+
+    /**
+     * Stop recording
+     *
+     * Stop the active recording in a room.
+     *
+     * @bodyParam recording_id string required The recording ID to stop.
+     *
+     * @response 200 scenario="Stopped" {"message": "Recording stopped"}
+     * @response 422 scenario="Validation Error" {"message": "..."}
+     */
+    public function stopRecording(Request $request, Room $room): JsonResponse
+    {
+        Gate::authorize('stream', $room);
+
+        $request->validate([
+            'recording_id' => 'required|uuid|exists:recordings,id',
+        ]);
+
+        $this->recordingService->stopRecording($request->recording_id);
+
+        return response()->json([
+            'message' => 'Recording stopped',
+        ]);
+    }
+
+    /**
+     * List recordings
+     *
+     * Get all recordings for a room.
+     *
+     * @response 200 scenario="Success" {
+     *   "data": [
+     *     {
+     *       "id": "uuid",
+     *       "status": "ready",
+     *       "duration_seconds": 3600,
+     *       "file_size": 104857600
+     *     }
+     *   ]
+     * }
+     */
+    public function recordings(Request $request, Room $room): JsonResponse
+    {
+        $user = $request->user();
+
+        $isMember = $room->organization->members()
+            ->where('user_id', $user->id)
+            ->exists();
+
+        if (!$isMember) {
+            return response()->json([
+                'message' => 'Unauthorized',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        $recordings = $this->recordingService->getRecordings($room);
+
+        return response()->json([
+            'data' => $recordings->map(fn ($recording) => [
+                'id' => $recording->id,
+                'room_id' => $recording->room_id,
+                'session_id' => $recording->session_id,
+                'status' => $recording->status,
+                'file_path' => $recording->file_path,
+                'file_size' => $recording->file_size,
+                'duration_seconds' => $recording->duration_seconds,
+                'started_at' => $recording->started_at?->toIso8601String(),
+                'ended_at' => $recording->ended_at?->toIso8601String(),
+                'created_at' => $recording->created_at->toIso8601String(),
+            ]),
+        ]);
     }
 }
