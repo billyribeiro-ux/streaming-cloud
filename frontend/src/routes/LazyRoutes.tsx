@@ -12,6 +12,7 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorBoundary from '../components/ErrorBoundary';
+import ProtectedRoute from '../components/ProtectedRoute';
 
 // ============================================================================
 // LAZY-LOADED PAGES
@@ -67,24 +68,24 @@ export default function LazyRoutes() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
           {/* Protected Routes */}
-          <Route path="/" element={<DashboardPage />} />
+          <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
 
           {/* Room Routes */}
-          <Route path="/rooms" element={<RoomListPage />} />
-          <Route path="/rooms/create" element={<CreateRoomPage />} />
-          <Route path="/rooms/:roomId" element={<RoomDetailPage />} />
-          <Route path="/rooms/:roomId/live" element={<RoomLivePage />} />
+          <Route path="/rooms" element={<ProtectedRoute><RoomListPage /></ProtectedRoute>} />
+          <Route path="/rooms/create" element={<ProtectedRoute><CreateRoomPage /></ProtectedRoute>} />
+          <Route path="/rooms/:roomId" element={<ProtectedRoute><RoomDetailPage /></ProtectedRoute>} />
+          <Route path="/rooms/:roomId/live" element={<ProtectedRoute><RoomLivePage /></ProtectedRoute>} />
 
           {/* Settings Routes */}
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/settings/profile" element={<ProfilePage />} />
-          <Route path="/settings/organization" element={<OrganizationSettingsPage />} />
-          <Route path="/settings/billing" element={<BillingPage />} />
+          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+          <Route path="/settings/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+          <Route path="/settings/organization" element={<ProtectedRoute><OrganizationSettingsPage /></ProtectedRoute>} />
+          <Route path="/settings/billing" element={<ProtectedRoute><BillingPage /></ProtectedRoute>} />
 
           {/* Admin Routes */}
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/admin/users" element={<AdminUsersPage />} />
-          <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
+          <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute requiredRole="admin"><AdminUsersPage /></ProtectedRoute>} />
+          <Route path="/admin/analytics" element={<ProtectedRoute requiredRole="admin"><AdminAnalyticsPage /></ProtectedRoute>} />
 
           {/* Error Routes */}
           <Route path="/unauthorized" element={<UnauthorizedPage />} />
