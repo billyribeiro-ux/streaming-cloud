@@ -6,7 +6,9 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\AlertController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ChatController;
+use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\RoomController;
+use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\MetricsController;
@@ -43,6 +45,9 @@ Route::prefix('v1/auth')->group(function () {
     });
 });
 
+// Stripe webhook (no auth - signature verified in controller)
+Route::post('v1/webhooks/stripe', [StripeWebhookController::class, 'handleWebhook']);
+
 // V1 API routes
 Route::prefix('v1')->group(function () {
     // Public routes
@@ -50,7 +55,15 @@ Route::prefix('v1')->group(function () {
 
     // Authenticated routes
     Route::middleware(['auth:sanctum', 'rate.limit'])->group(function () {
+        // Billing
+        Route::get('/plans', [BillingController::class, 'plans']);
+        Route::post('/billing/subscribe', [BillingController::class, 'subscribe']);
+        Route::post('/billing/portal', [BillingController::class, 'portal']);
+        Route::get('/billing/subscription', [BillingController::class, 'currentSubscription']);
+
         // Room management
+        Route::get('/rooms/live', [RoomController::class, 'live']);
+        Route::get('/rooms/upcoming', [RoomController::class, 'upcoming']);
         Route::apiResource('rooms', RoomController::class);
         Route::post('/rooms/{room}/join', [RoomController::class, 'join']);
         Route::post('/rooms/{room}/leave', [RoomController::class, 'leave']);
