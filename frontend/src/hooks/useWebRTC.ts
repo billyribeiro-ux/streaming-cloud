@@ -22,7 +22,6 @@ import type {
   MediaKind,
   AppData,
   ConnectionState,
-  SctpStreamParameters,
 } from 'mediasoup-client/types';
 import { useSignaling } from './useSignaling';
 import {
@@ -69,36 +68,175 @@ interface ConsumerInfo {
   participantId: string;
 }
 
-type ConnectionQualityLevel = 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
-
-function mapScoreToQuality(score: number): ConnectionQualityLevel {
-  if (score >= 8) return 'excellent';
-  if (score >= 5) return 'good';
-  if (score >= 3) return 'fair';
-  return 'poor';
-}
-
-interface DataMessage {
-  label: string;
-  data: string;
-  participantId: string;
-  timestamp: number;
-}
-
 interface UseWebRTCOptions {
   signalingUrl: string;
   token: string;
   roomId: string;
   organizationId: string;
+  /** Enable end-to-end encryption via Encoded Transform API. Default: false */
+  enableE2EE?: boolean;
 }
 
+// ----------------------------------------------------------------
+// E2EE: Encoded Transform helpers (RTCRtpScriptTransform / legacy)
+// ----------------------------------------------------------------
+
+/** 12-byte random IV prefix; the remaining 4 bytes are a frame counter. */
+const E2EE_IV_LENGTH = 12;
+
+/**
+ * Encrypt an outgoing encoded frame using AES-GCM.
+ * The IV is prepended to the cipher-text so the receiver can extract it.
+ */
+function setupSenderTransform(
+  sender: RTCRtpSender,
+  key: CryptoKey
+): void {
+  // Encoded Transform API (Chrome 110+, Safari 15.4+)
+  const readable = (sender as any).createEncodedStreams?.()?.readable
+    ?? (sender as any).transform?.readable;
+  const writable = (sender as any).createEncodedStreams?.()?.writable
+    ?? (sender as any).transform?.writable;
+
+  // Prefer the modern RTCRtpSender.transform setter when available
+  if ('transform' in sender) {
+    let frameCounter = 0;
+    const transform = new TransformStream({
+      async transform(frame: any, controller: TransformStreamDefaultController) {
+        const data = new Uint8Array(frame.data);
+        const iv = new Uint8Array(E2EE_IV_LENGTH);
+        crypto.getRandomValues(iv);
+        // Embed a monotonic counter in the last 4 bytes for ordering
+        const view = new DataView(iv.buffer);
+        view.setUint32(iv.byteLength - 4, frameCounter++);
+
+        const ciphertext = await crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv },
+          key,
+          data
+        );
+
+        const output = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+        output.set(iv, 0);
+        output.set(new Uint8Array(ciphertext), iv.byteLength);
+
+        frame.data = output.buffer;
+        controller.enqueue(frame);
+      },
+    });
+
+    (sender as any).transform = transform;
+    return;
+  }
+
+  // Legacy Insertable Streams fallback
+  if (readable && writable) {
+    let frameCounter = 0;
+    const ts = new TransformStream({
+      async transform(frame: any, controller: TransformStreamDefaultController) {
+        const data = new Uint8Array(frame.data);
+        const iv = new Uint8Array(E2EE_IV_LENGTH);
+        crypto.getRandomValues(iv);
+        const view = new DataView(iv.buffer);
+        view.setUint32(iv.byteLength - 4, frameCounter++);
+
+        const ciphertext = await crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv },
+          key,
+          data
+        );
+
+        const output = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+        output.set(iv, 0);
+        output.set(new Uint8Array(ciphertext), iv.byteLength);
+
+        frame.data = output.buffer;
+        controller.enqueue(frame);
+      },
+    });
+
+    readable.pipeThrough(ts).pipeTo(writable);
+  }
+}
+
+/**
+ * Decrypt an incoming encoded frame using AES-GCM.
+ */
+function setupReceiverTransform(
+  receiver: RTCRtpReceiver,
+  key: CryptoKey
+): void {
+  if ('transform' in receiver) {
+    const transform = new TransformStream({
+      async transform(frame: any, controller: TransformStreamDefaultController) {
+        const data = new Uint8Array(frame.data);
+        if (data.byteLength <= E2EE_IV_LENGTH) {
+          // Frame too small to contain IV + ciphertext; drop it
+          return;
+        }
+        const iv = data.slice(0, E2EE_IV_LENGTH);
+        const ciphertext = data.slice(E2EE_IV_LENGTH);
+
+        try {
+          const plaintext = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            ciphertext
+          );
+          frame.data = plaintext;
+          controller.enqueue(frame);
+        } catch {
+          // Decryption failure (wrong key, corrupted frame) - drop silently
+          console.warn('[E2EE] Frame decryption failed, dropping frame');
+        }
+      },
+    });
+
+    (receiver as any).transform = transform;
+    return;
+  }
+
+  // Legacy Insertable Streams fallback
+  const readable = (receiver as any).createEncodedStreams?.()?.readable
+    ?? (receiver as any).transform?.readable;
+  const writable = (receiver as any).createEncodedStreams?.()?.writable
+    ?? (receiver as any).transform?.writable;
+
+  if (readable && writable) {
+    const ts = new TransformStream({
+      async transform(frame: any, controller: TransformStreamDefaultController) {
+        const data = new Uint8Array(frame.data);
+        if (data.byteLength <= E2EE_IV_LENGTH) return;
+        const iv = data.slice(0, E2EE_IV_LENGTH);
+        const ciphertext = data.slice(E2EE_IV_LENGTH);
+
+        try {
+          const plaintext = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            ciphertext
+          );
+          frame.data = plaintext;
+          controller.enqueue(frame);
+        } catch {
+          console.warn('[E2EE] Frame decryption failed, dropping frame');
+        }
+      },
+    });
+
+    readable.pipeThrough(ts).pipeTo(writable);
+  }
+}
+
+// ----------------------------------------------------------------
+
 export function useWebRTC(options: UseWebRTCOptions) {
-  const { signalingUrl, token, roomId, organizationId } = options;
+  const { signalingUrl, token, roomId, organizationId, enableE2EE = false } = options;
 
   // State
   const [isConnected, setIsConnected] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
-  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isE2EEEnabled, setIsE2EEEnabled] = useState(false);
   const [mediaState, setMediaState] = useState<MediaState>({
     video: false,
     audio: false,
@@ -107,7 +245,6 @@ export function useWebRTC(options: UseWebRTCOptions) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [consumers, setConsumers] = useState<Map<string, ConsumerInfo>>(new Map());
-  const [dataMessages, setDataMessages] = useState<DataMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Refs
@@ -116,98 +253,26 @@ export function useWebRTC(options: UseWebRTCOptions) {
   const recvTransportRef = useRef<Transport | null>(null);
   const producersRef = useRef<Map<string, Producer>>(new Map());
   const consumersRef = useRef<Map<string, Consumer>>(new Map());
-  const dataProducersRef = useRef<Map<string, DataProducer>>(new Map());
-  const dataConsumersRef = useRef<Map<string, DataConsumer>>(new Map());
 
-  // Connection quality per participant
-  const [connectionQuality, setConnectionQuality] = useState<
-    Map<string, 'excellent' | 'good' | 'fair' | 'poor' | 'unknown'>
-  >(new Map());
-
-  // Reconnection refs - survive across WebSocket reconnections
-  const lastRoomIdRef = useRef<string | null>(null);
-  const lastDisplayNameRef = useRef<string | null>(null);
-  const lastRoleRef = useRef<string | null>(null);
-  const wasJoinedRef = useRef(false);
+  // E2EE refs
+  const e2eeLocalKeyRef = useRef<CryptoKey | null>(null);
+  const e2eeRemoteKeysRef = useRef<Map<string, CryptoKey>>(new Map());
+  const e2eeDataProducerRef = useRef<DataProducer | null>(null);
 
   // Store
-  const { setParticipants, addParticipant, removeParticipant, updateParticipant } = useRoomStore();
-
-  // Ref to hold signaling.send so reconnect can call it without a circular dep
-  const signalingSendRef = useRef<(data: any) => void>(() => {});
-  const signalingOnceRef = useRef<(event: string, handler: (message: any) => void) => void>(() => {});
+  const { setParticipants, addParticipant, removeParticipant } = useRoomStore();
 
   // Signaling connection
   const signaling = useSignaling({
     url: signalingUrl,
-    onOpen: () => {
-      setIsConnected(true);
-      // If we were previously joined, trigger reconnection flow
-      if (wasJoinedRef.current) {
-        setIsReconnecting(true);
-        reconnect();
-      }
-    },
+    onOpen: () => setIsConnected(true),
     onClose: () => {
       setIsConnected(false);
-      if (isJoined) {
-        // Remember that we need to reconnect when WS comes back
-        wasJoinedRef.current = true;
-      }
       setIsJoined(false);
     },
     onError: () => setError('WebSocket connection error'),
     onMessage: handleSignalingMessage,
   });
-
-  // Keep signaling refs in sync
-  signalingSendRef.current = signaling.send;
-  signalingOnceRef.current = signaling.once;
-
-  // Reconnect: re-authenticate and re-join the room after WebSocket reconnects
-  const reconnect = useCallback(async () => {
-    if (!lastRoomIdRef.current || !lastDisplayNameRef.current || !lastRoleRef.current) {
-      setIsReconnecting(false);
-      return;
-    }
-
-    console.log('[WebRTC] Reconnecting to room', lastRoomIdRef.current);
-
-    // Close stale mediasoup transports (server-side ones are gone)
-    sendTransportRef.current?.close();
-    recvTransportRef.current?.close();
-    sendTransportRef.current = null;
-    recvTransportRef.current = null;
-
-    // Clear old consumers - tracks are dead after reconnect
-    for (const consumer of consumersRef.current.values()) {
-      consumer.close();
-    }
-    consumersRef.current.clear();
-    setConsumers(new Map());
-
-    const send = signalingSendRef.current;
-    const once = signalingOnceRef.current;
-
-    // Wait for authenticated event before re-joining
-    once('authenticated', () => {
-      send({
-        event: 'join-room',
-        data: {
-          roomId: lastRoomIdRef.current!,
-          role: lastRoleRef.current!,
-          displayName: lastDisplayNameRef.current!,
-          rtpCapabilities: deviceRef.current?.rtpCapabilities,
-        },
-      });
-    });
-
-    // Re-authenticate
-    send({
-      event: 'authenticate',
-      data: { token, organizationId },
-    });
-  }, [token, organizationId]);
 
   // Handle signaling messages
   function handleSignalingMessage(message: any) {
@@ -248,41 +313,58 @@ export function useWebRTC(options: UseWebRTCOptions) {
         removeParticipant(message.data.participantId);
         break;
 
-      case 'data-produced':
-        console.log('DataProducer created:', message.data.dataProducerId);
-        break;
-
-      case 'data-consumer-created':
-        handleDataConsumerCreated(message.data);
-        break;
-
-      case 'new-data-producer':
-        handleNewDataProducer(message.data);
-        break;
-
       case 'producer-paused':
       case 'producer-resumed':
       case 'producer-closed':
         handleProducerStateChange(message);
         break;
 
-      case 'active-speaker':
-        // Active speaker detected via AudioLevelObserver
-        console.log('Active speaker:', message.data.participantId, 'volume:', message.data.volume);
-        break;
-
-      case 'score':
-        // Connection quality score update
-        console.log('Score update:', message.data.type, message.data.id, message.data.score);
-        break;
-
-      case 'ice-restarted':
-        handleIceRestarted(message.data);
+      case 'data-consumer-created':
+        handleDataConsumerCreated(message.data);
         break;
 
       case 'error':
         setError(message.data.message);
         break;
+    }
+  }
+
+  /**
+   * Handle incoming DataConsumer creation (for E2EE key exchange).
+   */
+  async function handleDataConsumerCreated(data: {
+    dataConsumerId: string;
+    dataProducerId: string;
+    label: string;
+    protocol: string;
+    sctpStreamParameters: any;
+    appData: any;
+  }) {
+    const transport = recvTransportRef.current;
+    if (!transport) return;
+
+    try {
+      const dataConsumer = await transport.consumeData({
+        id: data.dataConsumerId,
+        dataProducerId: data.dataProducerId,
+        label: data.label,
+        protocol: data.protocol,
+        sctpStreamParameters: data.sctpStreamParameters,
+        appData: data.appData,
+      });
+
+      if (data.label === 'e2ee-key') {
+        dataConsumer.on('message', (message: any) => {
+          const rawKey = message instanceof ArrayBuffer
+            ? message
+            : (message as Uint8Array).buffer;
+          const participantId = data.appData?.participantId || data.dataProducerId;
+          handleE2EEKeyReceived(participantId, rawKey);
+        });
+        console.log('[E2EE] DataConsumer created for key exchange');
+      }
+    } catch (err) {
+      console.error('Failed to consume data:', err);
     }
   }
 
@@ -297,26 +379,97 @@ export function useWebRTC(options: UseWebRTCOptions) {
     []
   );
 
+  // ---- E2EE key generation and broadcast ----------------------------
+
+  /**
+   * Generate AES-GCM 256-bit key and broadcast it to peers via DataChannel.
+   * Called once after transports are ready when E2EE is enabled.
+   */
+  async function initializeE2EE(): Promise<void> {
+    const transport = sendTransportRef.current;
+    if (!transport) return;
+
+    // Generate a random 256-bit AES-GCM key
+    const key = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      true, // extractable so we can export & send to peers
+      ['encrypt', 'decrypt']
+    );
+
+    e2eeLocalKeyRef.current = key;
+    setIsE2EEEnabled(true);
+
+    // Export the raw key bytes for transmission
+    const rawKey = await crypto.subtle.exportKey('raw', key);
+
+    // Create a DataProducer to broadcast the key
+    try {
+      const dataProducer = await transport.produceData({
+        label: 'e2ee-key',
+        protocol: '',
+        ordered: true,
+        appData: { source: 'e2ee' },
+      });
+
+      e2eeDataProducerRef.current = dataProducer;
+
+      // Broadcast the key as raw bytes
+      dataProducer.send(new Uint8Array(rawKey));
+
+      console.log('[E2EE] Local encryption key generated and broadcast');
+    } catch (err) {
+      console.error('[E2EE] Failed to create DataProducer for key exchange:', err);
+    }
+  }
+
+  /**
+   * Handle incoming DataConsumer with label 'e2ee-key'.
+   * Imports the sender's key and stores it indexed by participant ID.
+   */
+  async function handleE2EEKeyReceived(
+    participantId: string,
+    rawKeyBytes: ArrayBuffer
+  ): Promise<void> {
+    try {
+      const key = await crypto.subtle.importKey(
+        'raw',
+        rawKeyBytes,
+        { name: 'AES-GCM', length: 256 },
+        false, // non-extractable on the receiving side
+        ['decrypt']
+      );
+      e2eeRemoteKeysRef.current.set(participantId, key);
+      console.log(`[E2EE] Stored key for participant ${participantId}`);
+    } catch (err) {
+      console.error('[E2EE] Failed to import remote key:', err);
+    }
+  }
+
+  // ---- End E2EE helpers --------------------------------------------
+
   // Handle room joined event
   async function handleRoomJoined(data: {
     roomId: string;
     participantId: string;
     routerRtpCapabilities: RtpCapabilities;
     participants: Partial<Participant> & { id: string }[];
-    isReconnect?: boolean;
   }) {
     try {
-      // Initialize mediasoup device (re-load is safe if already loaded)
+      // Initialize mediasoup device
       await initializeDevice(data.routerRtpCapabilities);
       setIsJoined(true);
-      setIsReconnecting(false);
-      wasJoinedRef.current = false;
 
       const normalizedParticipants = data.participants.map(mapServerParticipant);
       setParticipants(normalizedParticipants);
 
       // Create transports
       await createTransports();
+
+      // Initialize E2EE after transports are ready (if enabled)
+      if (enableE2EE) {
+        // Small delay to ensure transports are fully set up
+        setTimeout(() => initializeE2EE(), 200);
+      }
 
       // Consume existing producers
       for (const participant of normalizedParticipants) {
@@ -332,19 +485,16 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
   // Create send and receive transports
   async function createTransports() {
-    const device = deviceRef.current;
-    const sctpCapabilities = device?.sctpCapabilities;
-
     // Create send transport (for producing)
     signaling.send({
       event: 'create-transport',
-      data: { direction: 'send', sctpCapabilities },
+      data: { direction: 'send' },
     });
 
     // Create receive transport (for consuming)
     signaling.send({
       event: 'create-transport',
-      data: { direction: 'recv', sctpCapabilities },
+      data: { direction: 'recv' },
     });
   }
 
@@ -428,6 +578,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
       }
       );
 
+      // Handle DataChannel produceData for E2EE key exchange
       transport.on(
         'producedata',
         async (
@@ -437,7 +588,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
             protocol,
             appData,
           }: {
-            sctpStreamParameters: SctpStreamParameters;
+            sctpStreamParameters: any;
             label: string;
             protocol: string;
             appData: AppData;
@@ -457,7 +608,12 @@ export function useWebRTC(options: UseWebRTCOptions) {
             },
           });
 
-          const dataProducerId = await waitForDataProducerId();
+          // Wait for data-produced event
+          const dataProducerId = await new Promise<string>((resolve) => {
+            signaling.once('data-produced', (msg: any) => {
+              resolve(msg.data.dataProducerId);
+            });
+          });
           callback({ id: dataProducerId });
         } catch (err) {
           errback(err as Error);
@@ -491,12 +647,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
     transport.on('connectionstatechange', (state: ConnectionState) => {
       console.log(`Transport ${data.direction} connection state:`, state);
       if (state === 'failed') {
-        // Request ICE restart instead of closing - keeps the session alive
-        console.warn(`Transport ${data.direction} failed, requesting ICE restart`);
-        signaling.send({
-          event: 'restart-ice',
-          data: { transportId: data.transportId },
-        });
+        transport.close();
       }
     });
   }
@@ -514,20 +665,21 @@ export function useWebRTC(options: UseWebRTCOptions) {
     });
   }
 
-  // Join room - authenticate first, then join on authenticated event
+  // Join room
   const joinRoom = useCallback(
     async (displayName: string, role: string = 'viewer') => {
       if (!signaling.isConnected) {
         throw new Error('Not connected to signaling server');
       }
 
-      // Store for reconnection
-      lastRoomIdRef.current = roomId;
-      lastDisplayNameRef.current = displayName;
-      lastRoleRef.current = role;
+      // Authenticate first
+      signaling.send({
+        event: 'authenticate',
+        data: { token, organizationId },
+      });
 
-      // Wait for authenticated event before joining
-      signaling.once('authenticated', () => {
+      // Wait a bit for auth, then join
+      setTimeout(() => {
         signaling.send({
           event: 'join-room',
           data: {
@@ -537,13 +689,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
             rtpCapabilities: deviceRef.current?.rtpCapabilities,
           },
         });
-      });
-
-      // Send authenticate request
-      signaling.send({
-        event: 'authenticate',
-        data: { token, organizationId },
-      });
+      }, 500);
     },
     [signaling, token, organizationId, roomId]
   );
@@ -563,18 +709,14 @@ export function useWebRTC(options: UseWebRTCOptions) {
     consumersRef.current.clear();
     setConsumers(new Map());
 
-    // Close all data producers
-    for (const dataProducer of dataProducersRef.current.values()) {
-      dataProducer.close();
+    // Close E2EE DataProducer
+    if (e2eeDataProducerRef.current) {
+      e2eeDataProducerRef.current.close();
+      e2eeDataProducerRef.current = null;
     }
-    dataProducersRef.current.clear();
-
-    // Close all data consumers
-    for (const dataConsumer of dataConsumersRef.current.values()) {
-      dataConsumer.close();
-    }
-    dataConsumersRef.current.clear();
-    setDataMessages([]);
+    e2eeLocalKeyRef.current = null;
+    e2eeRemoteKeysRef.current.clear();
+    setIsE2EEEnabled(false);
 
     // Close transports
     sendTransportRef.current?.close();
@@ -588,13 +730,6 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
     // Send leave event
     signaling.send({ event: 'leave-room', data: {} });
-
-    // Clear reconnection state - intentional leave should not reconnect
-    lastRoomIdRef.current = null;
-    lastDisplayNameRef.current = null;
-    lastRoleRef.current = null;
-    wasJoinedRef.current = false;
-    setIsReconnecting(false);
 
     setIsJoined(false);
     setMediaState({ video: false, audio: false, screen: false });
@@ -632,9 +767,9 @@ export function useWebRTC(options: UseWebRTCOptions) {
         const producer = await transport.produce({
           track,
           encodings: [
-            { rid: 'q', maxBitrate: 150000, scaleResolutionDownBy: 4, scalabilityMode: 'L1T3' },
-            { rid: 'h', maxBitrate: 500000, scaleResolutionDownBy: 2, scalabilityMode: 'L1T3' },
-            { rid: 'f', maxBitrate: 1200000, scalabilityMode: 'L1T3' },
+            { maxBitrate: 100000, scaleResolutionDownBy: 4 },
+            { maxBitrate: 300000, scaleResolutionDownBy: 2 },
+            { maxBitrate: 900000 },
           ],
           codecOptions: {
             videoGoogleStartBitrate: 1000,
@@ -643,6 +778,15 @@ export function useWebRTC(options: UseWebRTCOptions) {
         });
 
         producersRef.current.set('video', producer);
+
+        // Apply E2EE sender transform
+        if (enableE2EE && e2eeLocalKeyRef.current) {
+          const rtpSender = (producer as any).rtpSender as RTCRtpSender | undefined;
+          if (rtpSender) {
+            setupSenderTransform(rtpSender, e2eeLocalKeyRef.current);
+          }
+        }
+
         setLocalStream((prev) => {
           const newStream = prev || new MediaStream();
           newStream.addTrack(track);
@@ -690,13 +834,20 @@ export function useWebRTC(options: UseWebRTCOptions) {
           codecOptions: {
             opusStereo: false,
             opusDtx: true,
-            opusFec: true,
-            opusMaxPlaybackRate: 48000,
           },
           appData: { source: 'microphone' },
         });
 
         producersRef.current.set('audio', producer);
+
+        // Apply E2EE sender transform
+        if (enableE2EE && e2eeLocalKeyRef.current) {
+          const rtpSender = (producer as any).rtpSender as RTCRtpSender | undefined;
+          if (rtpSender) {
+            setupSenderTransform(rtpSender, e2eeLocalKeyRef.current);
+          }
+        }
+
         setLocalStream((prev) => {
           const newStream = prev || new MediaStream();
           newStream.addTrack(track);
@@ -761,6 +912,15 @@ export function useWebRTC(options: UseWebRTCOptions) {
         });
 
         producersRef.current.set('screen', producer);
+
+        // Apply E2EE sender transform
+        if (enableE2EE && e2eeLocalKeyRef.current) {
+          const rtpSender = (producer as any).rtpSender as RTCRtpSender | undefined;
+          if (rtpSender) {
+            setupSenderTransform(rtpSender, e2eeLocalKeyRef.current);
+          }
+        }
+
         setScreenStream(stream);
         setMediaState((prev) => ({ ...prev, screen: true }));
       } catch (err) {
@@ -820,28 +980,17 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
       consumersRef.current.set(data.consumerId, consumer);
 
-      // Listen for score events to track connection quality
-      consumer.on('score', (score) => {
+      // Apply E2EE receiver transform if enabled
+      if (enableE2EE) {
         const participantId = data.appData?.participantId || '';
-        if (!participantId) return;
-
-        // mediasoup-client consumer score is { score, producerScore, producerScores }
-        const consumerScore =
-          typeof score === 'object' && score !== null && 'score' in score
-            ? (score as { score: number }).score
-            : typeof score === 'number'
-              ? score
-              : 0;
-        const quality = mapScoreToQuality(consumerScore);
-
-        setConnectionQuality((prev) => {
-          const next = new Map(prev);
-          next.set(participantId, quality);
-          return next;
-        });
-
-        updateParticipant(participantId, { connectionQuality: quality });
-      });
+        const remoteKey = e2eeRemoteKeysRef.current.get(participantId);
+        if (remoteKey) {
+          const rtpReceiver = (consumer as any).rtpReceiver as RTCRtpReceiver | undefined;
+          if (rtpReceiver) {
+            setupReceiverTransform(rtpReceiver, remoteKey);
+          }
+        }
+      }
 
       // Resume consumer
       signaling.send({
@@ -866,177 +1015,12 @@ export function useWebRTC(options: UseWebRTCOptions) {
     }
   }
 
-  // Handle ICE restart response from server
-  async function handleIceRestarted(data: { transportId: string; iceParameters: any }) {
-    // Find which transport needs the ICE restart applied
-    const sendTransport = sendTransportRef.current;
-    const recvTransport = recvTransportRef.current;
-
-    const transport =
-      sendTransport?.id === data.transportId ? sendTransport :
-      recvTransport?.id === data.transportId ? recvTransport :
-      null;
-
-    if (transport) {
-      await transport.restartIce({ iceParameters: data.iceParameters });
-      console.log('ICE restart completed for transport:', data.transportId);
-    }
-  }
-
   // Handle producer state changes
   function handleProducerStateChange(message: any) {
     const { producerId } = message.data;
     // Update UI based on producer state changes
     console.log('Producer state change:', message.event, producerId);
   }
-
-  // Poll recv transport stats every 5 seconds when joined
-  useEffect(() => {
-    if (!isJoined) return;
-
-    const interval = setInterval(async () => {
-      const transport = recvTransportRef.current;
-      if (!transport) return;
-
-      try {
-        const stats = await transport.getStats();
-
-        stats.forEach((report) => {
-          if (report.type === 'inbound-rtp') {
-            const { roundTripTime, jitter, packetsLost, bytesReceived, packetsReceived } =
-              report as RTCInboundRtpStreamStats & { roundTripTime?: number };
-
-            if (
-              packetsLost !== undefined &&
-              packetsReceived !== undefined &&
-              packetsReceived > 0
-            ) {
-              const lossPercent = (packetsLost / (packetsReceived + packetsLost)) * 100;
-              if (lossPercent > 2) {
-                console.warn(
-                  `[WebRTC Stats] High packet loss: ${lossPercent.toFixed(1)}% (lost=${packetsLost}, received=${packetsReceived})`
-                );
-              }
-            }
-
-            if (jitter !== undefined && jitter > 0.03) {
-              console.warn(
-                `[WebRTC Stats] High jitter: ${(jitter * 1000).toFixed(1)}ms`
-              );
-            }
-
-            if (roundTripTime !== undefined || bytesReceived !== undefined) {
-              console.debug('[WebRTC Stats]', {
-                roundTripTime,
-                jitter,
-                packetsLost,
-                bytesReceived,
-              });
-            }
-          }
-        });
-      } catch (err) {
-        console.debug('Failed to get transport stats:', err);
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [isJoined]);
-
-  // Handle new data producer notification
-  async function handleNewDataProducer(data: {
-    dataProducerId: string;
-    participantId: string;
-    label: string;
-    protocol: string;
-    appData: any;
-  }) {
-    signaling.send({
-      event: 'consume-data',
-      data: { dataProducerId: data.dataProducerId },
-    });
-  }
-
-  // Handle data consumer created
-  async function handleDataConsumerCreated(data: {
-    dataConsumerId: string;
-    dataProducerId: string;
-    sctpStreamParameters: any;
-    label: string;
-    protocol: string;
-    appData: any;
-  }) {
-    const transport = recvTransportRef.current;
-    if (!transport) return;
-
-    try {
-      const dataConsumer = await transport.consumeData({
-        id: data.dataConsumerId,
-        dataProducerId: data.dataProducerId,
-        sctpStreamParameters: data.sctpStreamParameters as SctpStreamParameters,
-        label: data.label,
-        protocol: data.protocol,
-        appData: data.appData,
-      });
-
-      dataConsumersRef.current.set(data.dataConsumerId, dataConsumer);
-
-      dataConsumer.on('message', (message: string | ArrayBuffer) => {
-        const text = typeof message === 'string' ? message : new TextDecoder().decode(message as ArrayBuffer);
-        setDataMessages((prev) => [
-          ...prev,
-          {
-            label: dataConsumer.label,
-            data: text,
-            participantId: data.appData?.participantId || '',
-            timestamp: Date.now(),
-          },
-        ]);
-      });
-    } catch (err) {
-      console.error('Failed to consume data:', err);
-    }
-  }
-
-  // Wait for data producer ID from signaling
-  function waitForDataProducerId(): Promise<string> {
-    return new Promise((resolve) => {
-      const handler = (message: any) => {
-        if (message.event === 'data-produced') {
-          resolve(message.data.dataProducerId);
-        }
-      };
-      signaling.once('data-produced', handler);
-    });
-  }
-
-  // Send data on a DataChannel
-  const sendData = useCallback(
-    async (label: string, data: string) => {
-      const transport = sendTransportRef.current;
-      if (!transport) throw new Error('Send transport not created');
-
-      let dataProducer = dataProducersRef.current.get(label);
-
-      if (!dataProducer || dataProducer.closed) {
-        // Create a new data producer for this label
-        dataProducer = await transport.produceData({
-          label,
-          protocol: 'trading-data',
-          appData: { label },
-        });
-
-        // Wait for server acknowledgment
-        const dataProducerId = await waitForDataProducerId();
-        console.log('DataProducer confirmed:', dataProducerId);
-
-        dataProducersRef.current.set(label, dataProducer);
-      }
-
-      dataProducer.send(data);
-    },
-    []
-  );
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1050,13 +1034,11 @@ export function useWebRTC(options: UseWebRTCOptions) {
     // State
     isConnected,
     isJoined,
-    isReconnecting,
+    isE2EEEnabled,
     mediaState,
     localStream,
     screenStream,
     consumers,
-    connectionQuality,
-    dataMessages,
     error,
 
     // Actions
@@ -1067,7 +1049,6 @@ export function useWebRTC(options: UseWebRTCOptions) {
     toggleVideo,
     toggleAudio,
     toggleScreen,
-    sendData,
 
     // Utils
     clearError: () => setError(null),

@@ -16,11 +16,8 @@ export type ClientEventType =
   | 'resume-producer'
   | 'close-producer'
   | 'set-preferred-layers'
-  | 'set-max-bitrate'
   | 'get-router-rtp-capabilities'
-  | 'restart-ice'
-  | 'produce-data'
-  | 'consume-data';
+  | 'e2ee-key-rotation';
 
 // Server to Client Events
 export type ServerEventType =
@@ -39,12 +36,7 @@ export type ServerEventType =
   | 'producer-resumed'
   | 'producer-closed'
   | 'router-rtp-capabilities'
-  | 'ice-restarted'
-  | 'active-speaker'
-  | 'score'
-  | 'data-produced'
-  | 'data-consumer-created'
-  | 'new-data-producer'
+  | 'e2ee-key-rotated'
   | 'error';
 
 export interface SignalingMessage {

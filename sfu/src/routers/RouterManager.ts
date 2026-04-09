@@ -20,22 +20,16 @@ interface RoomRouter {
   transports: Map<string, MediasoupTypes.WebRtcTransport>;
   producers: Map<string, MediasoupTypes.Producer>;
   consumers: Map<string, MediasoupTypes.Consumer>;
-  audioLevelObserver: MediasoupTypes.AudioLevelObserver | null;
-  dataProducers: Map<string, MediasoupTypes.DataProducer>;
-  dataConsumers: Map<string, MediasoupTypes.DataConsumer>;
   createdAt: Date;
 }
 
-/** Callback for active speaker events */
-export type ActiveSpeakerCallback = (roomId: string, producerId: string, volume: number) => void;
-
-/** Callback for producer/consumer score events */
-export type ScoreCallback = (
-  roomId: string,
-  type: 'producer' | 'consumer',
-  id: string,
-  score: unknown
-) => void;
+export interface WhipSessionInfo {
+  transportId: string;
+  iceParameters: MediasoupTypes.IceParameters;
+  iceCandidates: MediasoupTypes.IceCandidate[];
+  dtlsParameters: MediasoupTypes.DtlsParameters;
+  producerIds: string[];
+}
 
 interface TransportInfo {
   id: string;
@@ -60,43 +54,14 @@ interface ConsumerInfo {
   appData: any;
 }
 
-export interface ProduceDataInfo {
-  id: string;
-  sctpStreamParameters: MediasoupTypes.SctpStreamParameters;
-  label: string;
-  protocol: string;
-  appData: any;
-}
-
-export interface ConsumeDataInfo {
-  id: string;
-  dataProducerId: string;
-  sctpStreamParameters: MediasoupTypes.SctpStreamParameters;
-  label: string;
-  protocol: string;
-  appData: any;
-}
-
 export class RouterManager {
   private routers: Map<string, RoomRouter> = new Map();
-  private onActiveSpeaker: ActiveSpeakerCallback | null = null;
-  private onScore: ScoreCallback | null = null;
 
   constructor(
     private workerManager: WorkerManager,
     private redisService: RedisService,
     private nodeId: string
   ) {}
-
-  /** Register callback for active speaker events */
-  setActiveSpeakerCallback(cb: ActiveSpeakerCallback): void {
-    this.onActiveSpeaker = cb;
-  }
-
-  /** Register callback for score events */
-  setScoreCallback(cb: ScoreCallback): void {
-    this.onScore = cb;
-  }
 
   async initialize(): Promise<void> {
     logger.info('Router manager initialized');
@@ -129,31 +94,6 @@ export class RouterManager {
 
     const routerId = uuidv4();
 
-    // Create AudioLevelObserver for speaker detection
-    let audioLevelObserver: MediasoupTypes.AudioLevelObserver | null = null;
-    try {
-      audioLevelObserver = await router.createAudioLevelObserver({
-        maxEntries: 1,
-        threshold: -50,
-        interval: 800,
-      });
-
-      audioLevelObserver.on('volumes', (volumes) => {
-        if (volumes.length > 0 && this.onActiveSpeaker) {
-          const { producer, volume } = volumes[0];
-          this.onActiveSpeaker(roomId, producer.id, volume);
-        }
-      });
-
-      audioLevelObserver.on('silence', () => {
-        // Optionally notify about silence
-      });
-
-      logger.debug({ roomId, routerId }, 'AudioLevelObserver created');
-    } catch (err) {
-      logger.warn({ roomId, err }, 'Failed to create AudioLevelObserver');
-    }
-
     const roomRouter: RoomRouter = {
       id: routerId,
       roomId,
@@ -162,9 +102,6 @@ export class RouterManager {
       transports: new Map(),
       producers: new Map(),
       consumers: new Map(),
-      audioLevelObserver,
-      dataProducers: new Map(),
-      dataConsumers: new Map(),
       createdAt: new Date(),
     };
 
@@ -212,11 +149,10 @@ export class RouterManager {
       throw new Error(`Router not found: ${routerId}`);
     }
 
-    const defaultSctpStreams = { OS: 1024, MIS: 1024 };
     const transport = await roomRouter.router.createWebRtcTransport({
       ...webRtcTransportOptions,
-      enableSctp: true,
-      numSctpStreams: sctpCapabilities?.numStreams ?? defaultSctpStreams,
+      enableSctp: !!sctpCapabilities,
+      numSctpStreams: sctpCapabilities?.numStreams,
       appData: { direction },
     });
 
@@ -311,22 +247,9 @@ export class RouterManager {
 
     producer.on('score', (score) => {
       logger.debug({ producerId: producer.id, score }, 'Producer score');
-      if (this.onScore) {
-        this.onScore(roomRouter.roomId, 'producer', producer.id, score);
-      }
     });
 
     roomRouter.producers.set(producer.id, producer);
-
-    // Add audio producers to the AudioLevelObserver for speaker detection
-    if (kind === 'audio' && roomRouter.audioLevelObserver) {
-      try {
-        await roomRouter.audioLevelObserver.addProducer({ producerId: producer.id });
-        logger.debug({ producerId: producer.id }, 'Producer added to AudioLevelObserver');
-      } catch (err) {
-        logger.warn({ producerId: producer.id, err }, 'Failed to add producer to AudioLevelObserver');
-      }
-    }
 
     logger.info(
       { producerId: producer.id, kind, routerId },
@@ -379,15 +302,11 @@ export class RouterManager {
       return null;
     }
 
-    // Audio gets higher priority than video to ensure voice never degrades
-    const priority = producer.kind === 'audio' ? 2 : 1;
-
     const consumer = await transport.consume({
       producerId,
       rtpCapabilities,
       paused: true, // Start paused, client will resume
       appData: producer.appData,
-      priority,
     });
 
     consumer.on('transportclose', () => {
@@ -402,9 +321,6 @@ export class RouterManager {
 
     consumer.on('score', (score) => {
       logger.debug({ consumerId: consumer.id, score }, 'Consumer score');
-      if (this.onScore) {
-        this.onScore(roomRouter.roomId, 'consumer', consumer.id, score);
-      }
     });
 
     roomRouter.consumers.set(consumer.id, consumer);
@@ -420,110 +336,6 @@ export class RouterManager {
       kind: consumer.kind,
       rtpParameters: consumer.rtpParameters,
       appData: consumer.appData,
-    };
-  }
-
-  /**
-   * Create a data producer on a transport (DataChannel)
-   */
-  async produceData(
-    routerId: string,
-    transportId: string,
-    sctpStreamParameters: MediasoupTypes.SctpStreamParameters,
-    label: string,
-    protocol: string,
-    appData?: any
-  ): Promise<ProduceDataInfo> {
-    const roomRouter = this.routers.get(routerId);
-    if (!roomRouter) {
-      throw new Error(`Router not found: ${routerId}`);
-    }
-
-    const transport = roomRouter.transports.get(transportId);
-    if (!transport) {
-      throw new Error(`Transport not found: ${transportId}`);
-    }
-
-    const dataProducer = await transport.produceData({
-      sctpStreamParameters,
-      label,
-      protocol,
-      appData: appData || {},
-    });
-
-    dataProducer.on('transportclose', () => {
-      logger.debug({ dataProducerId: dataProducer.id }, 'DataProducer transport closed');
-      roomRouter.dataProducers.delete(dataProducer.id);
-    });
-
-    roomRouter.dataProducers.set(dataProducer.id, dataProducer);
-
-    logger.info(
-      { dataProducerId: dataProducer.id, label, routerId },
-      'DataProducer created'
-    );
-
-    return {
-      id: dataProducer.id,
-      sctpStreamParameters: dataProducer.sctpStreamParameters,
-      label: dataProducer.label,
-      protocol: dataProducer.protocol,
-      appData: dataProducer.appData,
-    };
-  }
-
-  /**
-   * Create a data consumer for a data producer (DataChannel)
-   */
-  async consumeData(
-    routerId: string,
-    transportId: string,
-    dataProducerId: string
-  ): Promise<ConsumeDataInfo> {
-    const roomRouter = this.routers.get(routerId);
-    if (!roomRouter) {
-      throw new Error(`Router not found: ${routerId}`);
-    }
-
-    const transport = roomRouter.transports.get(transportId);
-    if (!transport) {
-      throw new Error(`Transport not found: ${transportId}`);
-    }
-
-    const dataProducer = roomRouter.dataProducers.get(dataProducerId);
-    if (!dataProducer) {
-      throw new Error(`DataProducer not found: ${dataProducerId}`);
-    }
-
-    const dataConsumer = await transport.consumeData({
-      dataProducerId,
-      appData: dataProducer.appData,
-    });
-
-    dataConsumer.on('transportclose', () => {
-      logger.debug({ dataConsumerId: dataConsumer.id }, 'DataConsumer transport closed');
-      roomRouter.dataConsumers.delete(dataConsumer.id);
-    });
-
-    dataConsumer.on('dataproducerclose', () => {
-      logger.debug({ dataConsumerId: dataConsumer.id }, 'DataConsumer producer closed');
-      roomRouter.dataConsumers.delete(dataConsumer.id);
-    });
-
-    roomRouter.dataConsumers.set(dataConsumer.id, dataConsumer);
-
-    logger.debug(
-      { dataConsumerId: dataConsumer.id, dataProducerId, label: dataConsumer.label },
-      'DataConsumer created'
-    );
-
-    return {
-      id: dataConsumer.id,
-      dataProducerId,
-      sctpStreamParameters: dataConsumer.sctpStreamParameters,
-      label: dataConsumer.label,
-      protocol: dataConsumer.protocol,
-      appData: dataConsumer.appData,
     };
   }
 
@@ -585,28 +397,6 @@ export class RouterManager {
   }
 
   /**
-   * Restart ICE on a transport (for network recovery without full re-negotiation)
-   */
-  async restartIce(
-    routerId: string,
-    transportId: string
-  ): Promise<MediasoupTypes.IceParameters> {
-    const roomRouter = this.routers.get(routerId);
-    if (!roomRouter) {
-      throw new Error(`Router not found: ${routerId}`);
-    }
-
-    const transport = roomRouter.transports.get(transportId);
-    if (!transport) {
-      throw new Error(`Transport not found: ${transportId}`);
-    }
-
-    const iceParameters = await transport.restartIce();
-    logger.info({ transportId, routerId }, 'ICE restarted');
-    return iceParameters;
-  }
-
-  /**
    * Set preferred layers for simulcast
    */
   async setPreferredLayers(
@@ -634,16 +424,6 @@ export class RouterManager {
   async closeRouter(routerId: string): Promise<void> {
     const roomRouter = this.routers.get(routerId);
     if (!roomRouter) return;
-
-    // Close all data consumers
-    for (const dataConsumer of roomRouter.dataConsumers.values()) {
-      dataConsumer.close();
-    }
-
-    // Close all data producers
-    for (const dataProducer of roomRouter.dataProducers.values()) {
-      dataProducer.close();
-    }
 
     // Close all consumers
     for (const consumer of roomRouter.consumers.values()) {
@@ -675,31 +455,6 @@ export class RouterManager {
     logger.info({ routerId, roomId: roomRouter.roomId }, 'Router closed');
   }
 
-  /**
-   * Set max incoming bitrate on a transport to cap per-transport bandwidth
-   */
-  async setMaxIncomingBitrate(
-    routerId: string,
-    transportId: string,
-    bitrate: number
-  ): Promise<void> {
-    const roomRouter = this.routers.get(routerId);
-    if (!roomRouter) {
-      throw new Error(`Router not found: ${routerId}`);
-    }
-
-    const transport = roomRouter.transports.get(transportId);
-    if (!transport) {
-      throw new Error(`Transport not found: ${transportId}`);
-    }
-
-    await transport.setMaxIncomingBitrate(bitrate);
-    logger.info(
-      { routerId, transportId, bitrate },
-      'Max incoming bitrate set on transport'
-    );
-  }
-
   getRouterCount(): number {
     return this.routers.size;
   }
@@ -722,6 +477,131 @@ export class RouterManager {
       rtpParameters: p.rtpParameters,
       appData: p.appData,
     }));
+  }
+
+  // ----------------------------------------------------------------
+  // WHIP (WebRTC-HTTP Ingestion Protocol) session management
+  // ----------------------------------------------------------------
+
+  /**
+   * Create a WHIP ingress session.
+   *
+   * Creates a server-side WebRtcTransport that an external encoder will
+   * connect to.  The caller is responsible for generating the SDP answer
+   * from the returned transport parameters.
+   *
+   * @param routerId  The mediasoup router that owns the room.
+   * @param sdpOffer  The raw SDP offer string from the WHIP client (used
+   *                  to determine the number and kind of m-lines).
+   * @returns Transport info needed to build an SDP answer.
+   */
+  async createWhipSession(
+    routerId: string,
+    sdpOffer: string
+  ): Promise<WhipSessionInfo> {
+    const roomRouter = this.routers.get(routerId);
+    if (!roomRouter) {
+      throw new Error(`Router not found: ${routerId}`);
+    }
+
+    // Create a WebRtcTransport for the WHIP client
+    const transport = await roomRouter.router.createWebRtcTransport({
+      ...webRtcTransportOptions,
+      enableUdp: true,
+      enableTcp: true,
+      preferUdp: true,
+      appData: { whip: true },
+    });
+
+    transport.on('dtlsstatechange', (dtlsState) => {
+      if (dtlsState === 'failed' || dtlsState === 'closed') {
+        logger.warn(
+          { transportId: transport.id, dtlsState },
+          'WHIP transport DTLS state changed'
+        );
+      }
+    });
+
+    roomRouter.transports.set(transport.id, transport);
+
+    // Parse the SDP offer to determine media sections
+    const mediaKinds = this.parseMediaSectionsFromSdp(sdpOffer);
+    const producerIds: string[] = [];
+
+    logger.info(
+      {
+        routerId,
+        transportId: transport.id,
+        mediaSections: mediaKinds,
+      },
+      'WHIP session created'
+    );
+
+    return {
+      transportId: transport.id,
+      iceParameters: transport.iceParameters,
+      iceCandidates: transport.iceCandidates,
+      dtlsParameters: transport.dtlsParameters,
+      producerIds,
+    };
+  }
+
+  /**
+   * Delete (tear down) a WHIP session by closing its transport
+   * and all associated producers.
+   */
+  async deleteWhipSession(
+    routerId: string,
+    transportId: string
+  ): Promise<void> {
+    const roomRouter = this.routers.get(routerId);
+    if (!roomRouter) {
+      throw new Error(`Router not found: ${routerId}`);
+    }
+
+    const transport = roomRouter.transports.get(transportId);
+    if (!transport) {
+      throw new Error(`Transport not found: ${transportId}`);
+    }
+
+    // Close all producers on this transport
+    for (const [producerId, producer] of roomRouter.producers) {
+      if ((producer.appData as any)?.transportId === transportId) {
+        producer.close();
+        roomRouter.producers.delete(producerId);
+      }
+    }
+
+    transport.close();
+    roomRouter.transports.delete(transportId);
+
+    logger.info({ routerId, transportId }, 'WHIP session deleted');
+  }
+
+  /**
+   * Minimal SDP parser: extracts media kinds (audio / video) from
+   * m= lines in the offered SDP.
+   */
+  private parseMediaSectionsFromSdp(
+    sdp: string
+  ): { kind: MediasoupTypes.MediaKind; mid: string }[] {
+    const lines = sdp.split(/\r?\n/);
+    const sections: { kind: MediasoupTypes.MediaKind; mid: string }[] = [];
+    let currentKind: MediasoupTypes.MediaKind | null = null;
+
+    for (const line of lines) {
+      if (line.startsWith('m=audio')) {
+        currentKind = 'audio';
+      } else if (line.startsWith('m=video')) {
+        currentKind = 'video';
+      } else if (line.startsWith('a=mid:') && currentKind) {
+        const mid = line.slice('a=mid:'.length).trim();
+        sections.push({ kind: currentKind, mid });
+        currentKind = null;
+      }
+    }
+
+    return sections;
   }
 
   async shutdown(): Promise<void> {
