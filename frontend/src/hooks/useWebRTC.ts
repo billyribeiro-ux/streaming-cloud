@@ -98,6 +98,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
   // State
   const [isConnected, setIsConnected] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const [mediaState, setMediaState] = useState<MediaState>({
     video: false,
     audio: false,
@@ -123,20 +124,90 @@ export function useWebRTC(options: UseWebRTCOptions) {
     Map<string, 'excellent' | 'good' | 'fair' | 'poor' | 'unknown'>
   >(new Map());
 
+  // Reconnection refs - survive across WebSocket reconnections
+  const lastRoomIdRef = useRef<string | null>(null);
+  const lastDisplayNameRef = useRef<string | null>(null);
+  const lastRoleRef = useRef<string | null>(null);
+  const wasJoinedRef = useRef(false);
+
   // Store
   const { setParticipants, addParticipant, removeParticipant, updateParticipant } = useRoomStore();
+
+  // Ref to hold signaling.send so reconnect can call it without a circular dep
+  const signalingSendRef = useRef<(data: any) => void>(() => {});
+  const signalingOnceRef = useRef<(event: string, handler: (message: any) => void) => void>(() => {});
 
   // Signaling connection
   const signaling = useSignaling({
     url: signalingUrl,
-    onOpen: () => setIsConnected(true),
+    onOpen: () => {
+      setIsConnected(true);
+      // If we were previously joined, trigger reconnection flow
+      if (wasJoinedRef.current) {
+        setIsReconnecting(true);
+        reconnect();
+      }
+    },
     onClose: () => {
       setIsConnected(false);
+      if (isJoined) {
+        // Remember that we need to reconnect when WS comes back
+        wasJoinedRef.current = true;
+      }
       setIsJoined(false);
     },
     onError: () => setError('WebSocket connection error'),
     onMessage: handleSignalingMessage,
   });
+
+  // Keep signaling refs in sync
+  signalingSendRef.current = signaling.send;
+  signalingOnceRef.current = signaling.once;
+
+  // Reconnect: re-authenticate and re-join the room after WebSocket reconnects
+  const reconnect = useCallback(async () => {
+    if (!lastRoomIdRef.current || !lastDisplayNameRef.current || !lastRoleRef.current) {
+      setIsReconnecting(false);
+      return;
+    }
+
+    console.log('[WebRTC] Reconnecting to room', lastRoomIdRef.current);
+
+    // Close stale mediasoup transports (server-side ones are gone)
+    sendTransportRef.current?.close();
+    recvTransportRef.current?.close();
+    sendTransportRef.current = null;
+    recvTransportRef.current = null;
+
+    // Clear old consumers - tracks are dead after reconnect
+    for (const consumer of consumersRef.current.values()) {
+      consumer.close();
+    }
+    consumersRef.current.clear();
+    setConsumers(new Map());
+
+    const send = signalingSendRef.current;
+    const once = signalingOnceRef.current;
+
+    // Wait for authenticated event before re-joining
+    once('authenticated', () => {
+      send({
+        event: 'join-room',
+        data: {
+          roomId: lastRoomIdRef.current!,
+          role: lastRoleRef.current!,
+          displayName: lastDisplayNameRef.current!,
+          rtpCapabilities: deviceRef.current?.rtpCapabilities,
+        },
+      });
+    });
+
+    // Re-authenticate
+    send({
+      event: 'authenticate',
+      data: { token, organizationId },
+    });
+  }, [token, organizationId]);
 
   // Handle signaling messages
   function handleSignalingMessage(message: any) {
@@ -232,11 +303,14 @@ export function useWebRTC(options: UseWebRTCOptions) {
     participantId: string;
     routerRtpCapabilities: RtpCapabilities;
     participants: Partial<Participant> & { id: string }[];
+    isReconnect?: boolean;
   }) {
     try {
-      // Initialize mediasoup device
+      // Initialize mediasoup device (re-load is safe if already loaded)
       await initializeDevice(data.routerRtpCapabilities);
       setIsJoined(true);
+      setIsReconnecting(false);
+      wasJoinedRef.current = false;
 
       const normalizedParticipants = data.participants.map(mapServerParticipant);
       setParticipants(normalizedParticipants);
@@ -447,6 +521,11 @@ export function useWebRTC(options: UseWebRTCOptions) {
         throw new Error('Not connected to signaling server');
       }
 
+      // Store for reconnection
+      lastRoomIdRef.current = roomId;
+      lastDisplayNameRef.current = displayName;
+      lastRoleRef.current = role;
+
       // Wait for authenticated event before joining
       signaling.once('authenticated', () => {
         signaling.send({
@@ -509,6 +588,13 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
     // Send leave event
     signaling.send({ event: 'leave-room', data: {} });
+
+    // Clear reconnection state - intentional leave should not reconnect
+    lastRoomIdRef.current = null;
+    lastDisplayNameRef.current = null;
+    lastRoleRef.current = null;
+    wasJoinedRef.current = false;
+    setIsReconnecting(false);
 
     setIsJoined(false);
     setMediaState({ video: false, audio: false, screen: false });
@@ -964,6 +1050,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
     // State
     isConnected,
     isJoined,
+    isReconnecting,
     mediaState,
     localStream,
     screenStream,

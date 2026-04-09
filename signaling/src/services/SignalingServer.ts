@@ -334,6 +334,37 @@ export class SignalingServer {
     }
 
     try {
+      // Detect reconnecting participant: same userId already present in this room
+      const existingParticipant = this.roomManager.findParticipantByUserId(
+        data.roomId,
+        client.user.id
+      );
+      const isReconnect = !!existingParticipant;
+
+      if (isReconnect && existingParticipant) {
+        logger.info(
+          { roomId: data.roomId, userId: client.user.id, oldParticipantId: existingParticipant.id },
+          'Reconnecting participant detected - cleaning up old entry'
+        );
+
+        // Disconnect the old WebSocket client for this participant (if still lingering)
+        for (const oldClient of this.clients.values()) {
+          if (
+            oldClient.participantId === existingParticipant.id &&
+            oldClient.id !== client.id
+          ) {
+            oldClient.roomId = null;
+            oldClient.participantId = null;
+            oldClient.transportIds.clear();
+            oldClient.producerIds.clear();
+            oldClient.consumerIds.clear();
+          }
+        }
+
+        // Remove the stale participant entry (fresh transports will be created by client)
+        this.roomManager.removeParticipantEntry(data.roomId, existingParticipant.id);
+      }
+
       // Join the room through room manager
       const roomInfo = await this.roomManager.joinRoom(
         data.roomId,
@@ -354,7 +385,7 @@ export class SignalingServer {
         );
       }
 
-      // Get existing participants and their producers
+      // Get existing participants and their producers (full snapshot for reconnecting clients)
       const participants = await this.roomManager.getParticipants(data.roomId);
 
       this.send(client, {
@@ -365,6 +396,7 @@ export class SignalingServer {
           routerRtpCapabilities: roomInfo.routerRtpCapabilities,
           participants: participants.filter((p) => p.id !== roomInfo.participantId),
           sfuNode: roomInfo.sfuNode,
+          isReconnect,
         },
       });
 
@@ -376,11 +408,12 @@ export class SignalingServer {
           userId: client.user.id,
           displayName: data.displayName,
           role: data.role,
+          isReconnect,
         },
       });
 
       logger.info(
-        { clientId: client.id, roomId: data.roomId, role: data.role },
+        { clientId: client.id, roomId: data.roomId, role: data.role, isReconnect },
         'Client joined room'
       );
     } catch (error) {

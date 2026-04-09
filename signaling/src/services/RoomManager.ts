@@ -82,6 +82,21 @@ export interface SfuDataConsumerCreated {
   appData: unknown;
 }
 
+/** TTL for room state in Redis (1 hour) */
+const ROOM_STATE_TTL = 3600;
+
+/** Serialisable snapshot of a participant (no Maps). */
+interface ParticipantSnapshot {
+  id: string;
+  odUserId: string;
+  displayName: string;
+  role: string;
+  sendTransportId?: string;
+  recvTransportId?: string;
+  producers: ProducerState[];
+  consumers: ConsumerState[];
+}
+
 export class RoomManager {
   private rooms: Map<string, RoomState> = new Map();
 
@@ -90,7 +105,102 @@ export class RoomManager {
     private redisService: RedisService
   ) {}
 
+  // ---------------------------------------------------------------------------
+  // Redis persistence helpers
+  // ---------------------------------------------------------------------------
+
+  /** Persist essential room state to Redis so another signaling instance can restore it. */
+  async persistRoomState(roomId: string): Promise<void> {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+
+    const participantsSnapshot: ParticipantSnapshot[] = Array.from(
+      room.participants.values()
+    ).map((p) => ({
+      id: p.id,
+      odUserId: p.odUserId,
+      displayName: p.displayName,
+      role: p.role,
+      sendTransportId: p.sendTransportId,
+      recvTransportId: p.recvTransportId,
+      producers: Array.from(p.producers.values()),
+      consumers: Array.from(p.consumers.values()),
+    }));
+
+    const client = this.redisService.getClient();
+    if (!client) return;
+
+    const key = `room:state:${roomId}`;
+    await client
+      .multi()
+      .hset(key, 'participants', JSON.stringify(participantsSnapshot))
+      .hset(key, 'routerId', room.routerId)
+      .hset(key, 'sfuNode', room.sfuNode)
+      .hset(key, 'sfuHttpOrigin', room.sfuHttpOrigin)
+      .hset(key, 'routerRtpCapabilities', JSON.stringify(room.routerRtpCapabilities))
+      .expire(key, ROOM_STATE_TTL)
+      .exec();
+  }
+
+  /** Load room state from Redis, including participants, producers, and consumers. */
+  async loadRoomState(roomId: string): Promise<RoomState | null> {
+    const data = await this.redisService.hgetall(`room:state:${roomId}`);
+    if (!data || !data.routerId) return null;
+
+    const participantsArr: ParticipantSnapshot[] = data.participants
+      ? JSON.parse(data.participants)
+      : [];
+
+    const participants = new Map<string, RoomParticipant>();
+    for (const snap of participantsArr) {
+      const producersMap = new Map<string, ProducerState>();
+      for (const pr of snap.producers) {
+        producersMap.set(pr.id, pr);
+      }
+      const consumersMap = new Map<string, ConsumerState>();
+      for (const cs of snap.consumers) {
+        consumersMap.set(cs.id, cs);
+      }
+      participants.set(snap.id, {
+        id: snap.id,
+        odUserId: snap.odUserId,
+        displayName: snap.displayName,
+        role: snap.role,
+        sendTransportId: snap.sendTransportId,
+        recvTransportId: snap.recvTransportId,
+        producers: producersMap,
+        consumers: consumersMap,
+      });
+    }
+
+    const room: RoomState = {
+      id: roomId,
+      sfuNode: data.sfuNode ?? '',
+      sfuHttpOrigin: data.sfuHttpOrigin ?? '',
+      routerId: data.routerId,
+      routerRtpCapabilities: data.routerRtpCapabilities
+        ? JSON.parse(data.routerRtpCapabilities)
+        : {},
+      participants,
+      createdAt: new Date(),
+    };
+
+    this.rooms.set(roomId, room);
+    logger.info({ roomId, participantCount: participants.size }, 'Loaded full room state from Redis');
+    return room;
+  }
+
+  /** Remove persisted room state from Redis. */
+  private async deleteRoomState(roomId: string): Promise<void> {
+    await this.redisService.del(`room:state:${roomId}`);
+  }
+
   private async restoreRoomFromCluster(roomId: string): Promise<RoomState | null> {
+    // First try full room state (includes participants, producers, consumers)
+    const fullState = await this.loadRoomState(roomId);
+    if (fullState) return fullState;
+
+    // Fall back to router-only record
     const rec = await this.redisService.getRoomRouter(roomId);
     if (!rec?.httpOrigin || !rec.routerId) return null;
 
@@ -104,7 +214,7 @@ export class RoomManager {
       createdAt: new Date(),
     };
     this.rooms.set(roomId, room);
-    logger.info({ roomId }, 'Restored room state from Redis');
+    logger.info({ roomId }, 'Restored room state from Redis (router only)');
     return room;
   }
 
@@ -152,6 +262,8 @@ export class RoomManager {
 
     room.participants.set(participantId, participant);
 
+    await this.persistRoomState(roomId);
+
     logger.info(
       { roomId, participantId, userId: user.id, role },
       'Participant joined room'
@@ -173,7 +285,10 @@ export class RoomManager {
     if (room.participants.size === 0) {
       await this.sfuManager.releaseRoom(roomId);
       this.rooms.delete(roomId);
+      await this.deleteRoomState(roomId);
       logger.info({ roomId }, 'Room closed - no participants');
+    } else {
+      await this.persistRoomState(roomId);
     }
   }
 
@@ -235,6 +350,8 @@ export class RoomManager {
       participant.recvTransportId = t.id;
     }
 
+    await this.persistRoomState(roomId);
+
     return t;
   }
 
@@ -292,6 +409,8 @@ export class RoomManager {
       paused: false,
     });
 
+    await this.persistRoomState(roomId);
+
     return { id: p.id };
   }
 
@@ -344,6 +463,8 @@ export class RoomManager {
       kind: c.kind,
       paused: true,
     });
+
+    await this.persistRoomState(roomId);
 
     return {
       id: c.id,
@@ -449,6 +570,8 @@ export class RoomManager {
     for (const participant of room.participants.values()) {
       participant.producers.delete(producerId);
     }
+
+    await this.persistRoomState(roomId);
   }
 
   async setPreferredLayers(
@@ -506,9 +629,27 @@ export class RoomManager {
     return this.rooms.get(roomId)?.routerId;
   }
 
+  /** Find an existing participant by userId (for reconnection detection). */
+  findParticipantByUserId(roomId: string, userId: string): RoomParticipant | null {
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+    for (const p of room.participants.values()) {
+      if (p.odUserId === userId) return p;
+    }
+    return null;
+  }
+
+  /** Remove a participant entry without broadcasting or releasing the room. Used during reconnect cleanup. */
+  removeParticipantEntry(roomId: string, participantId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    room.participants.delete(participantId);
+  }
+
   /** Drop in-memory state and tear down SFU router (Laravel close room). */
   async destroyRoom(roomId: string): Promise<void> {
     this.rooms.delete(roomId);
+    await this.deleteRoomState(roomId);
     await this.sfuManager.releaseRoom(roomId);
   }
 
