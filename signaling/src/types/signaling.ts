@@ -18,7 +18,9 @@ export type ClientEventType =
   | 'set-preferred-layers'
   | 'set-max-bitrate'
   | 'get-router-rtp-capabilities'
-  | 'restart-ice';
+  | 'restart-ice'
+  | 'produce-data'
+  | 'consume-data';
 
 // Server to Client Events
 export type ServerEventType =
@@ -40,6 +42,9 @@ export type ServerEventType =
   | 'ice-restarted'
   | 'active-speaker'
   | 'score'
+  | 'data-produced'
+  | 'data-consumer-created'
+  | 'new-data-producer'
   | 'error';
 
 export interface SignalingMessage {

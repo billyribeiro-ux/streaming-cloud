@@ -63,6 +63,25 @@ export interface SfuConsumerCreated {
   appData: unknown;
 }
 
+/** SFU HTTP response shape for create data producer */
+export interface SfuDataProducerCreated {
+  id: string;
+  sctpStreamParameters: unknown;
+  label: string;
+  protocol: string;
+  appData: unknown;
+}
+
+/** SFU HTTP response shape for create data consumer */
+export interface SfuDataConsumerCreated {
+  id: string;
+  dataProducerId: string;
+  sctpStreamParameters: unknown;
+  label: string;
+  protocol: string;
+  appData: unknown;
+}
+
 export class RoomManager {
   private rooms: Map<string, RoomState> = new Map();
 
@@ -333,6 +352,63 @@ export class RoomManager {
       rtpParameters: c.rtpParameters,
       appData: c.appData,
     };
+  }
+
+  async produceData(
+    roomId: string,
+    participantId: string,
+    transportId: string,
+    sctpStreamParameters: unknown,
+    label: string,
+    protocol: string,
+    appData?: unknown
+  ): Promise<SfuDataProducerCreated> {
+    const room = this.getRoomOrThrow(roomId);
+    const participant = room.participants.get(participantId);
+    if (!participant) throw new Error('participant not found');
+
+    const dp = await sfuFetch<SfuDataProducerCreated>(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/data-producers`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          transportId,
+          sctpStreamParameters,
+          label,
+          protocol,
+          appData,
+        }),
+      }
+    );
+
+    return dp;
+  }
+
+  async consumeData(
+    roomId: string,
+    participantId: string,
+    dataProducerId: string
+  ): Promise<SfuDataConsumerCreated | null> {
+    const room = this.getRoomOrThrow(roomId);
+    const participant = room.participants.get(participantId);
+    if (!participant?.recvTransportId) {
+      throw new Error('Receive transport not created');
+    }
+
+    const dc = await sfuFetch<SfuDataConsumerCreated | null>(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/data-consumers`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          transportId: participant.recvTransportId,
+          dataProducerId,
+        }),
+      }
+    );
+
+    return dc;
   }
 
   async resumeConsumer(roomId: string, consumerId: string): Promise<void> {

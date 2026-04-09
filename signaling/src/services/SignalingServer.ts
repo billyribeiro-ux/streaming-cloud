@@ -268,6 +268,14 @@ export class SignalingServer {
         await this.handleRestartIce(client, message.data);
         break;
 
+      case 'produce-data':
+        await this.handleProduceData(client, message.data);
+        break;
+
+      case 'consume-data':
+        await this.handleConsumeData(client, message.data);
+        break;
+
       default:
         this.sendError(client, `Unknown event: ${(message as any).event}`);
     }
@@ -683,6 +691,107 @@ export class SignalingServer {
     } catch (error) {
       logger.error({ error }, 'Failed to set max bitrate');
       this.sendError(client, 'Failed to set max bitrate', 'BITRATE_ERROR');
+    }
+  }
+
+  private async handleProduceData(
+    client: ConnectedClient,
+    data: {
+      transportId: string;
+      sctpStreamParameters: any;
+      label: string;
+      protocol: string;
+      appData?: any;
+    }
+  ): Promise<void> {
+    if (!client.roomId || !client.participantId) {
+      this.sendError(client, 'Not in a room', 'NOT_IN_ROOM');
+      return;
+    }
+
+    try {
+      const mergedAppData =
+        data.appData && typeof data.appData === 'object'
+          ? { ...data.appData, participantId: client.participantId }
+          : { participantId: client.participantId };
+
+      const dataProducer = await this.roomManager.produceData(
+        client.roomId,
+        client.participantId,
+        data.transportId,
+        data.sctpStreamParameters,
+        data.label,
+        data.protocol,
+        mergedAppData
+      );
+
+      this.send(client, {
+        event: 'data-produced',
+        data: { dataProducerId: dataProducer.id },
+      });
+
+      // Notify other participants about the new data producer
+      await this.broadcastToRoom(client.roomId, client.id, {
+        event: 'new-data-producer',
+        data: {
+          dataProducerId: dataProducer.id,
+          participantId: client.participantId,
+          label: data.label,
+          protocol: data.protocol,
+          appData: mergedAppData,
+        },
+      });
+
+      logger.info(
+        { clientId: client.id, dataProducerId: dataProducer.id, label: data.label },
+        'DataProducer created'
+      );
+    } catch (error) {
+      logger.error({ error, clientId: client.id }, 'Failed to produce data');
+      this.sendError(client, 'Failed to produce data', 'PRODUCE_DATA_ERROR');
+    }
+  }
+
+  private async handleConsumeData(
+    client: ConnectedClient,
+    data: { dataProducerId: string }
+  ): Promise<void> {
+    if (!client.roomId || !client.participantId) {
+      this.sendError(client, 'Not in a room', 'NOT_IN_ROOM');
+      return;
+    }
+
+    try {
+      const dataConsumer = await this.roomManager.consumeData(
+        client.roomId,
+        client.participantId,
+        data.dataProducerId
+      );
+
+      if (!dataConsumer) {
+        this.sendError(client, 'Cannot consume this data producer', 'CONSUME_DATA_ERROR');
+        return;
+      }
+
+      this.send(client, {
+        event: 'data-consumer-created',
+        data: {
+          dataConsumerId: dataConsumer.id,
+          dataProducerId: data.dataProducerId,
+          sctpStreamParameters: dataConsumer.sctpStreamParameters,
+          label: dataConsumer.label,
+          protocol: dataConsumer.protocol,
+          appData: dataConsumer.appData,
+        },
+      });
+
+      logger.debug(
+        { clientId: client.id, dataConsumerId: dataConsumer.id },
+        'DataConsumer created'
+      );
+    } catch (error) {
+      logger.error({ error, clientId: client.id }, 'Failed to consume data');
+      this.sendError(client, 'Failed to consume data', 'CONSUME_DATA_ERROR');
     }
   }
 

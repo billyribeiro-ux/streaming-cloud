@@ -14,12 +14,15 @@ import type {
   Transport,
   Producer,
   Consumer,
+  DataProducer,
+  DataConsumer,
   RtpCapabilities,
   DtlsParameters,
   RtpParameters,
   MediaKind,
   AppData,
   ConnectionState,
+  SctpStreamParameters,
 } from 'mediasoup-client/types';
 import { useSignaling } from './useSignaling';
 import {
@@ -75,6 +78,13 @@ function mapScoreToQuality(score: number): ConnectionQualityLevel {
   return 'poor';
 }
 
+interface DataMessage {
+  label: string;
+  data: string;
+  participantId: string;
+  timestamp: number;
+}
+
 interface UseWebRTCOptions {
   signalingUrl: string;
   token: string;
@@ -96,6 +106,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [consumers, setConsumers] = useState<Map<string, ConsumerInfo>>(new Map());
+  const [dataMessages, setDataMessages] = useState<DataMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Refs
@@ -104,6 +115,8 @@ export function useWebRTC(options: UseWebRTCOptions) {
   const recvTransportRef = useRef<Transport | null>(null);
   const producersRef = useRef<Map<string, Producer>>(new Map());
   const consumersRef = useRef<Map<string, Consumer>>(new Map());
+  const dataProducersRef = useRef<Map<string, DataProducer>>(new Map());
+  const dataConsumersRef = useRef<Map<string, DataConsumer>>(new Map());
 
   // Connection quality per participant
   const [connectionQuality, setConnectionQuality] = useState<
@@ -162,6 +175,18 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
       case 'participant-left':
         removeParticipant(message.data.participantId);
+        break;
+
+      case 'data-produced':
+        console.log('DataProducer created:', message.data.dataProducerId);
+        break;
+
+      case 'data-consumer-created':
+        handleDataConsumerCreated(message.data);
+        break;
+
+      case 'new-data-producer':
+        handleNewDataProducer(message.data);
         break;
 
       case 'producer-paused':
@@ -233,16 +258,19 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
   // Create send and receive transports
   async function createTransports() {
+    const device = deviceRef.current;
+    const sctpCapabilities = device?.sctpCapabilities;
+
     // Create send transport (for producing)
     signaling.send({
       event: 'create-transport',
-      data: { direction: 'send' },
+      data: { direction: 'send', sctpCapabilities },
     });
 
     // Create receive transport (for consuming)
     signaling.send({
       event: 'create-transport',
-      data: { direction: 'recv' },
+      data: { direction: 'recv', sctpCapabilities },
     });
   }
 
@@ -320,6 +348,43 @@ export function useWebRTC(options: UseWebRTCOptions) {
           // Wait for produced event
           const producerId = await waitForProducerId();
           callback({ id: producerId });
+        } catch (err) {
+          errback(err as Error);
+        }
+      }
+      );
+
+      transport.on(
+        'producedata',
+        async (
+          {
+            sctpStreamParameters,
+            label,
+            protocol,
+            appData,
+          }: {
+            sctpStreamParameters: SctpStreamParameters;
+            label: string;
+            protocol: string;
+            appData: AppData;
+          },
+          callback: (result: { id: string }) => void,
+          errback: (error: Error) => void
+        ) => {
+        try {
+          signaling.send({
+            event: 'produce-data',
+            data: {
+              transportId: data.transportId,
+              sctpStreamParameters,
+              label,
+              protocol,
+              appData,
+            },
+          });
+
+          const dataProducerId = await waitForDataProducerId();
+          callback({ id: dataProducerId });
         } catch (err) {
           errback(err as Error);
         }
@@ -418,6 +483,19 @@ export function useWebRTC(options: UseWebRTCOptions) {
     }
     consumersRef.current.clear();
     setConsumers(new Map());
+
+    // Close all data producers
+    for (const dataProducer of dataProducersRef.current.values()) {
+      dataProducer.close();
+    }
+    dataProducersRef.current.clear();
+
+    // Close all data consumers
+    for (const dataConsumer of dataConsumersRef.current.values()) {
+      dataConsumer.close();
+    }
+    dataConsumersRef.current.clear();
+    setDataMessages([]);
 
     // Close transports
     sendTransportRef.current?.close();
@@ -779,6 +857,101 @@ export function useWebRTC(options: UseWebRTCOptions) {
     return () => clearInterval(interval);
   }, [isJoined]);
 
+  // Handle new data producer notification
+  async function handleNewDataProducer(data: {
+    dataProducerId: string;
+    participantId: string;
+    label: string;
+    protocol: string;
+    appData: any;
+  }) {
+    signaling.send({
+      event: 'consume-data',
+      data: { dataProducerId: data.dataProducerId },
+    });
+  }
+
+  // Handle data consumer created
+  async function handleDataConsumerCreated(data: {
+    dataConsumerId: string;
+    dataProducerId: string;
+    sctpStreamParameters: any;
+    label: string;
+    protocol: string;
+    appData: any;
+  }) {
+    const transport = recvTransportRef.current;
+    if (!transport) return;
+
+    try {
+      const dataConsumer = await transport.consumeData({
+        id: data.dataConsumerId,
+        dataProducerId: data.dataProducerId,
+        sctpStreamParameters: data.sctpStreamParameters as SctpStreamParameters,
+        label: data.label,
+        protocol: data.protocol,
+        appData: data.appData,
+      });
+
+      dataConsumersRef.current.set(data.dataConsumerId, dataConsumer);
+
+      dataConsumer.on('message', (message: string | ArrayBuffer) => {
+        const text = typeof message === 'string' ? message : new TextDecoder().decode(message as ArrayBuffer);
+        setDataMessages((prev) => [
+          ...prev,
+          {
+            label: dataConsumer.label,
+            data: text,
+            participantId: data.appData?.participantId || '',
+            timestamp: Date.now(),
+          },
+        ]);
+      });
+    } catch (err) {
+      console.error('Failed to consume data:', err);
+    }
+  }
+
+  // Wait for data producer ID from signaling
+  function waitForDataProducerId(): Promise<string> {
+    return new Promise((resolve) => {
+      const handler = (message: any) => {
+        if (message.event === 'data-produced') {
+          resolve(message.data.dataProducerId);
+        }
+      };
+      signaling.once('data-produced', handler);
+    });
+  }
+
+  // Send data on a DataChannel
+  const sendData = useCallback(
+    async (label: string, data: string) => {
+      const transport = sendTransportRef.current;
+      if (!transport) throw new Error('Send transport not created');
+
+      let dataProducer = dataProducersRef.current.get(label);
+
+      if (!dataProducer || dataProducer.closed) {
+        // Create a new data producer for this label
+        dataProducer = await transport.produceData({
+          label,
+          protocol: 'trading-data',
+          appData: { label },
+        });
+
+        // Wait for server acknowledgment
+        const dataProducerId = await waitForDataProducerId();
+        console.log('DataProducer confirmed:', dataProducerId);
+
+        dataProducersRef.current.set(label, dataProducer);
+      }
+
+      dataProducer.send(data);
+    },
+    []
+  );
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -796,6 +969,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
     screenStream,
     consumers,
     connectionQuality,
+    dataMessages,
     error,
 
     // Actions
@@ -806,6 +980,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
     toggleVideo,
     toggleAudio,
     toggleScreen,
+    sendData,
 
     // Utils
     clearError: () => setError(null),

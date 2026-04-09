@@ -8,6 +8,7 @@ import type {
   RtpCapabilities,
   RtpParameters,
   SctpCapabilities,
+  SctpStreamParameters,
 } from 'mediasoup/types';
 import type { RouterManager } from '../routers/RouterManager.js';
 import { config } from '../config/index.js';
@@ -165,6 +166,52 @@ export function apiRouter(routerManager: RouterManager): Router {
     } catch (e) {
       res.status(500).json({
         error: e instanceof Error ? e.message : 'consume failed',
+      });
+    }
+  });
+
+  r.post('/routers/:routerId/data-producers', async (req: Request, res: Response) => {
+    try {
+      const routerId = pathParam(req, 'routerId');
+      const { transportId, sctpStreamParameters, label, protocol, appData } = req.body as {
+        transportId: string;
+        sctpStreamParameters: unknown;
+        label: string;
+        protocol: string;
+        appData?: unknown;
+      };
+      const dp = await routerManager.produceData(
+        routerId,
+        transportId,
+        sctpStreamParameters as SctpStreamParameters,
+        label,
+        protocol,
+        appData
+      );
+      res.json(dp);
+    } catch (e) {
+      res.status(500).json({
+        error: e instanceof Error ? e.message : 'produceData failed',
+      });
+    }
+  });
+
+  r.post('/routers/:routerId/data-consumers', async (req: Request, res: Response) => {
+    try {
+      const routerId = pathParam(req, 'routerId');
+      const { transportId, dataProducerId } = req.body as {
+        transportId: string;
+        dataProducerId: string;
+      };
+      const dc = await routerManager.consumeData(
+        routerId,
+        transportId,
+        dataProducerId
+      );
+      res.json(dc);
+    } catch (e) {
+      res.status(500).json({
+        error: e instanceof Error ? e.message : 'consumeData failed',
       });
     }
   });

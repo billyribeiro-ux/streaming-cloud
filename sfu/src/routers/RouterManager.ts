@@ -21,6 +21,8 @@ interface RoomRouter {
   producers: Map<string, MediasoupTypes.Producer>;
   consumers: Map<string, MediasoupTypes.Consumer>;
   audioLevelObserver: MediasoupTypes.AudioLevelObserver | null;
+  dataProducers: Map<string, MediasoupTypes.DataProducer>;
+  dataConsumers: Map<string, MediasoupTypes.DataConsumer>;
   createdAt: Date;
 }
 
@@ -55,6 +57,23 @@ interface ConsumerInfo {
   producerId: string;
   kind: MediasoupTypes.MediaKind;
   rtpParameters: MediasoupTypes.RtpParameters;
+  appData: any;
+}
+
+export interface ProduceDataInfo {
+  id: string;
+  sctpStreamParameters: MediasoupTypes.SctpStreamParameters;
+  label: string;
+  protocol: string;
+  appData: any;
+}
+
+export interface ConsumeDataInfo {
+  id: string;
+  dataProducerId: string;
+  sctpStreamParameters: MediasoupTypes.SctpStreamParameters;
+  label: string;
+  protocol: string;
   appData: any;
 }
 
@@ -144,6 +163,8 @@ export class RouterManager {
       producers: new Map(),
       consumers: new Map(),
       audioLevelObserver,
+      dataProducers: new Map(),
+      dataConsumers: new Map(),
       createdAt: new Date(),
     };
 
@@ -191,10 +212,11 @@ export class RouterManager {
       throw new Error(`Router not found: ${routerId}`);
     }
 
+    const defaultSctpStreams = { OS: 1024, MIS: 1024 };
     const transport = await roomRouter.router.createWebRtcTransport({
       ...webRtcTransportOptions,
-      enableSctp: !!sctpCapabilities,
-      numSctpStreams: sctpCapabilities?.numStreams,
+      enableSctp: true,
+      numSctpStreams: sctpCapabilities?.numStreams ?? defaultSctpStreams,
       appData: { direction },
     });
 
@@ -402,6 +424,110 @@ export class RouterManager {
   }
 
   /**
+   * Create a data producer on a transport (DataChannel)
+   */
+  async produceData(
+    routerId: string,
+    transportId: string,
+    sctpStreamParameters: MediasoupTypes.SctpStreamParameters,
+    label: string,
+    protocol: string,
+    appData?: any
+  ): Promise<ProduceDataInfo> {
+    const roomRouter = this.routers.get(routerId);
+    if (!roomRouter) {
+      throw new Error(`Router not found: ${routerId}`);
+    }
+
+    const transport = roomRouter.transports.get(transportId);
+    if (!transport) {
+      throw new Error(`Transport not found: ${transportId}`);
+    }
+
+    const dataProducer = await transport.produceData({
+      sctpStreamParameters,
+      label,
+      protocol,
+      appData: appData || {},
+    });
+
+    dataProducer.on('transportclose', () => {
+      logger.debug({ dataProducerId: dataProducer.id }, 'DataProducer transport closed');
+      roomRouter.dataProducers.delete(dataProducer.id);
+    });
+
+    roomRouter.dataProducers.set(dataProducer.id, dataProducer);
+
+    logger.info(
+      { dataProducerId: dataProducer.id, label, routerId },
+      'DataProducer created'
+    );
+
+    return {
+      id: dataProducer.id,
+      sctpStreamParameters: dataProducer.sctpStreamParameters,
+      label: dataProducer.label,
+      protocol: dataProducer.protocol,
+      appData: dataProducer.appData,
+    };
+  }
+
+  /**
+   * Create a data consumer for a data producer (DataChannel)
+   */
+  async consumeData(
+    routerId: string,
+    transportId: string,
+    dataProducerId: string
+  ): Promise<ConsumeDataInfo> {
+    const roomRouter = this.routers.get(routerId);
+    if (!roomRouter) {
+      throw new Error(`Router not found: ${routerId}`);
+    }
+
+    const transport = roomRouter.transports.get(transportId);
+    if (!transport) {
+      throw new Error(`Transport not found: ${transportId}`);
+    }
+
+    const dataProducer = roomRouter.dataProducers.get(dataProducerId);
+    if (!dataProducer) {
+      throw new Error(`DataProducer not found: ${dataProducerId}`);
+    }
+
+    const dataConsumer = await transport.consumeData({
+      dataProducerId,
+      appData: dataProducer.appData,
+    });
+
+    dataConsumer.on('transportclose', () => {
+      logger.debug({ dataConsumerId: dataConsumer.id }, 'DataConsumer transport closed');
+      roomRouter.dataConsumers.delete(dataConsumer.id);
+    });
+
+    dataConsumer.on('dataproducerclose', () => {
+      logger.debug({ dataConsumerId: dataConsumer.id }, 'DataConsumer producer closed');
+      roomRouter.dataConsumers.delete(dataConsumer.id);
+    });
+
+    roomRouter.dataConsumers.set(dataConsumer.id, dataConsumer);
+
+    logger.debug(
+      { dataConsumerId: dataConsumer.id, dataProducerId, label: dataConsumer.label },
+      'DataConsumer created'
+    );
+
+    return {
+      id: dataConsumer.id,
+      dataProducerId,
+      sctpStreamParameters: dataConsumer.sctpStreamParameters,
+      label: dataConsumer.label,
+      protocol: dataConsumer.protocol,
+      appData: dataConsumer.appData,
+    };
+  }
+
+  /**
    * Resume a consumer
    */
   async resumeConsumer(routerId: string, consumerId: string): Promise<void> {
@@ -508,6 +634,16 @@ export class RouterManager {
   async closeRouter(routerId: string): Promise<void> {
     const roomRouter = this.routers.get(routerId);
     if (!roomRouter) return;
+
+    // Close all data consumers
+    for (const dataConsumer of roomRouter.dataConsumers.values()) {
+      dataConsumer.close();
+    }
+
+    // Close all data producers
+    for (const dataProducer of roomRouter.dataProducers.values()) {
+      dataProducer.close();
+    }
 
     // Close all consumers
     for (const consumer of roomRouter.consumers.values()) {
