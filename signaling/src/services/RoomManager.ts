@@ -392,6 +392,19 @@ export class RoomManager {
     );
   }
 
+  async restartIce(
+    roomId: string,
+    transportId: string
+  ): Promise<unknown> {
+    const room = this.getRoomOrThrow(roomId);
+    const result = await sfuFetch<{ iceParameters: unknown }>(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/transports/${encodeURIComponent(transportId)}/restart-ice`,
+      { method: 'POST' }
+    );
+    return result.iceParameters;
+  }
+
   async getRouterRtpCapabilities(roomId: string): Promise<unknown> {
     const room = this.rooms.get(roomId);
     return room?.routerRtpCapabilities || {};

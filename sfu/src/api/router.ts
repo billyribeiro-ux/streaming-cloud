@@ -107,6 +107,22 @@ export function apiRouter(routerManager: RouterManager): Router {
     }
   );
 
+  r.post(
+    '/routers/:routerId/transports/:transportId/restart-ice',
+    async (req: Request, res: Response) => {
+      try {
+        const routerId = pathParam(req, 'routerId');
+        const transportId = pathParam(req, 'transportId');
+        const iceParameters = await routerManager.restartIce(routerId, transportId);
+        res.json({ iceParameters });
+      } catch (e) {
+        res.status(500).json({
+          error: e instanceof Error ? e.message : 'restart ICE failed',
+        });
+      }
+    }
+  );
+
   r.post('/routers/:routerId/producers', async (req: Request, res: Response) => {
     try {
       const routerId = pathParam(req, 'routerId');

@@ -68,7 +68,7 @@ export const config: Config = {
     logLevel: process.env.MEDIASOUP_LOG_LEVEL || 'warn',
     logTags: parseArray(process.env.MEDIASOUP_LOG_TAGS, ['info', 'ice', 'dtls', 'rtp', 'srtp', 'rtcp']),
     rtcMinPort: parseInt(process.env.MEDIASOUP_RTC_MIN_PORT || '10000', 10),
-    rtcMaxPort: parseInt(process.env.MEDIASOUP_RTC_MAX_PORT || '10100', 10),
+    rtcMaxPort: parseInt(process.env.MEDIASOUP_RTC_MAX_PORT || '59999', 10),
     maxRoomsPerNode: parseInt(process.env.MEDIASOUP_MAX_ROOMS_PER_NODE || '500', 10),
   },
   cors: {

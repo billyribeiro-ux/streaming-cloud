@@ -47,8 +47,8 @@ export class SignalingServer {
   start(): void {
     this.wss.on('connection', this.handleConnection.bind(this));
 
-    // Start ping interval for connection health
-    this.pingInterval = setInterval(() => this.pingClients(), 30000);
+    // Start ping interval for connection health (10s for fast dead-client detection)
+    this.pingInterval = setInterval(() => this.pingClients(), 10000);
 
     logger.info('Signaling server started');
   }
@@ -258,6 +258,10 @@ export class SignalingServer {
 
       case 'get-router-rtp-capabilities':
         await this.handleGetRouterRtpCapabilities(client, message.data);
+        break;
+
+      case 'restart-ice':
+        await this.handleRestartIce(client, message.data);
         break;
 
       default:
@@ -676,6 +680,73 @@ export class SignalingServer {
     }
   }
 
+  private async handleRestartIce(
+    client: ConnectedClient,
+    data: { transportId: string }
+  ): Promise<void> {
+    if (!client.roomId) {
+      this.sendError(client, 'Not in a room', 'NOT_IN_ROOM');
+      return;
+    }
+
+    try {
+      const iceParameters = await this.roomManager.restartIce(
+        client.roomId,
+        data.transportId
+      );
+
+      this.send(client, {
+        event: 'ice-restarted',
+        data: { transportId: data.transportId, iceParameters },
+      });
+
+      logger.info(
+        { clientId: client.id, transportId: data.transportId },
+        'ICE restarted'
+      );
+    } catch (error) {
+      logger.error({ error, clientId: client.id }, 'Failed to restart ICE');
+      this.sendError(client, 'Failed to restart ICE', 'ICE_RESTART_ERROR');
+    }
+  }
+
+  /**
+   * Broadcast active speaker to all participants in a room.
+   * Called by the SFU AudioLevelObserver via the control API.
+   */
+  broadcastActiveSpeaker(roomId: string, participantId: string, volume: number): void {
+    for (const client of this.clients.values()) {
+      if (client.roomId === roomId) {
+        this.send(client, {
+          event: 'active-speaker',
+          data: { participantId, volume },
+        });
+      }
+    }
+  }
+
+  /**
+   * Forward producer/consumer score to the relevant client.
+   * Enables connection quality monitoring on the frontend.
+   */
+  forwardScore(
+    roomId: string,
+    participantId: string,
+    type: 'producer' | 'consumer',
+    id: string,
+    score: unknown
+  ): void {
+    for (const client of this.clients.values()) {
+      if (client.roomId === roomId && client.participantId === participantId) {
+        this.send(client, {
+          event: 'score',
+          data: { type, id, score },
+        });
+        break;
+      }
+    }
+  }
+
   // =========================================================================
   // HELPER METHODS
   // =========================================================================
@@ -764,7 +835,7 @@ export class SignalingServer {
 
   private pingClients(): void {
     const now = Date.now();
-    const timeout = 60000; // 60 seconds
+    const timeout = 20000; // 20 seconds (2 missed pings at 10s interval)
 
     for (const [clientId, client] of this.clients.entries()) {
       if (now - client.lastPing > timeout) {

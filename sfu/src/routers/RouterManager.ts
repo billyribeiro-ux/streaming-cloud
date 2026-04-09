@@ -20,8 +20,20 @@ interface RoomRouter {
   transports: Map<string, MediasoupTypes.WebRtcTransport>;
   producers: Map<string, MediasoupTypes.Producer>;
   consumers: Map<string, MediasoupTypes.Consumer>;
+  audioLevelObserver: MediasoupTypes.AudioLevelObserver | null;
   createdAt: Date;
 }
+
+/** Callback for active speaker events */
+export type ActiveSpeakerCallback = (roomId: string, producerId: string, volume: number) => void;
+
+/** Callback for producer/consumer score events */
+export type ScoreCallback = (
+  roomId: string,
+  type: 'producer' | 'consumer',
+  id: string,
+  score: unknown
+) => void;
 
 interface TransportInfo {
   id: string;
@@ -48,12 +60,24 @@ interface ConsumerInfo {
 
 export class RouterManager {
   private routers: Map<string, RoomRouter> = new Map();
+  private onActiveSpeaker: ActiveSpeakerCallback | null = null;
+  private onScore: ScoreCallback | null = null;
 
   constructor(
     private workerManager: WorkerManager,
     private redisService: RedisService,
     private nodeId: string
   ) {}
+
+  /** Register callback for active speaker events */
+  setActiveSpeakerCallback(cb: ActiveSpeakerCallback): void {
+    this.onActiveSpeaker = cb;
+  }
+
+  /** Register callback for score events */
+  setScoreCallback(cb: ScoreCallback): void {
+    this.onScore = cb;
+  }
 
   async initialize(): Promise<void> {
     logger.info('Router manager initialized');
@@ -86,6 +110,31 @@ export class RouterManager {
 
     const routerId = uuidv4();
 
+    // Create AudioLevelObserver for speaker detection
+    let audioLevelObserver: MediasoupTypes.AudioLevelObserver | null = null;
+    try {
+      audioLevelObserver = await router.createAudioLevelObserver({
+        maxEntries: 1,
+        threshold: -50,
+        interval: 800,
+      });
+
+      audioLevelObserver.on('volumes', (volumes) => {
+        if (volumes.length > 0 && this.onActiveSpeaker) {
+          const { producer, volume } = volumes[0];
+          this.onActiveSpeaker(roomId, producer.id, volume);
+        }
+      });
+
+      audioLevelObserver.on('silence', () => {
+        // Optionally notify about silence
+      });
+
+      logger.debug({ roomId, routerId }, 'AudioLevelObserver created');
+    } catch (err) {
+      logger.warn({ roomId, err }, 'Failed to create AudioLevelObserver');
+    }
+
     const roomRouter: RoomRouter = {
       id: routerId,
       roomId,
@@ -94,6 +143,7 @@ export class RouterManager {
       transports: new Map(),
       producers: new Map(),
       consumers: new Map(),
+      audioLevelObserver,
       createdAt: new Date(),
     };
 
@@ -239,9 +289,22 @@ export class RouterManager {
 
     producer.on('score', (score) => {
       logger.debug({ producerId: producer.id, score }, 'Producer score');
+      if (this.onScore) {
+        this.onScore(roomRouter.roomId, 'producer', producer.id, score);
+      }
     });
 
     roomRouter.producers.set(producer.id, producer);
+
+    // Add audio producers to the AudioLevelObserver for speaker detection
+    if (kind === 'audio' && roomRouter.audioLevelObserver) {
+      try {
+        await roomRouter.audioLevelObserver.addProducer({ producerId: producer.id });
+        logger.debug({ producerId: producer.id }, 'Producer added to AudioLevelObserver');
+      } catch (err) {
+        logger.warn({ producerId: producer.id, err }, 'Failed to add producer to AudioLevelObserver');
+      }
+    }
 
     logger.info(
       { producerId: producer.id, kind, routerId },
@@ -313,6 +376,9 @@ export class RouterManager {
 
     consumer.on('score', (score) => {
       logger.debug({ consumerId: consumer.id, score }, 'Consumer score');
+      if (this.onScore) {
+        this.onScore(roomRouter.roomId, 'consumer', consumer.id, score);
+      }
     });
 
     roomRouter.consumers.set(consumer.id, consumer);
@@ -386,6 +452,28 @@ export class RouterManager {
     producer.close();
     roomRouter.producers.delete(producerId);
     logger.debug({ producerId }, 'Producer closed');
+  }
+
+  /**
+   * Restart ICE on a transport (for network recovery without full re-negotiation)
+   */
+  async restartIce(
+    routerId: string,
+    transportId: string
+  ): Promise<MediasoupTypes.IceParameters> {
+    const roomRouter = this.routers.get(routerId);
+    if (!roomRouter) {
+      throw new Error(`Router not found: ${routerId}`);
+    }
+
+    const transport = roomRouter.transports.get(transportId);
+    if (!transport) {
+      throw new Error(`Transport not found: ${transportId}`);
+    }
+
+    const iceParameters = await transport.restartIce();
+    logger.info({ transportId, routerId }, 'ICE restarted');
+    return iceParameters;
   }
 
   /**

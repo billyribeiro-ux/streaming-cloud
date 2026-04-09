@@ -16,7 +16,8 @@ export type ClientEventType =
   | 'resume-producer'
   | 'close-producer'
   | 'set-preferred-layers'
-  | 'get-router-rtp-capabilities';
+  | 'get-router-rtp-capabilities'
+  | 'restart-ice';
 
 // Server to Client Events
 export type ServerEventType =
@@ -35,6 +36,9 @@ export type ServerEventType =
   | 'producer-resumed'
   | 'producer-closed'
   | 'router-rtp-capabilities'
+  | 'ice-restarted'
+  | 'active-speaker'
+  | 'score'
   | 'error';
 
 export interface SignalingMessage {

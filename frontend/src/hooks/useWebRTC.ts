@@ -156,6 +156,20 @@ export function useWebRTC(options: UseWebRTCOptions) {
         handleProducerStateChange(message);
         break;
 
+      case 'active-speaker':
+        // Active speaker detected via AudioLevelObserver
+        console.log('Active speaker:', message.data.participantId, 'volume:', message.data.volume);
+        break;
+
+      case 'score':
+        // Connection quality score update
+        console.log('Score update:', message.data.type, message.data.id, message.data.score);
+        break;
+
+      case 'ice-restarted':
+        handleIceRestarted(message.data);
+        break;
+
       case 'error':
         setError(message.data.message);
         break;
@@ -324,7 +338,12 @@ export function useWebRTC(options: UseWebRTCOptions) {
     transport.on('connectionstatechange', (state: ConnectionState) => {
       console.log(`Transport ${data.direction} connection state:`, state);
       if (state === 'failed') {
-        transport.close();
+        // Request ICE restart instead of closing - keeps the session alive
+        console.warn(`Transport ${data.direction} failed, requesting ICE restart`);
+        signaling.send({
+          event: 'restart-ice',
+          data: { transportId: data.transportId },
+        });
       }
     });
   }
@@ -342,21 +361,15 @@ export function useWebRTC(options: UseWebRTCOptions) {
     });
   }
 
-  // Join room
+  // Join room - authenticate first, then join on authenticated event
   const joinRoom = useCallback(
     async (displayName: string, role: string = 'viewer') => {
       if (!signaling.isConnected) {
         throw new Error('Not connected to signaling server');
       }
 
-      // Authenticate first
-      signaling.send({
-        event: 'authenticate',
-        data: { token, organizationId },
-      });
-
-      // Wait a bit for auth, then join
-      setTimeout(() => {
+      // Wait for authenticated event before joining
+      signaling.once('authenticated', () => {
         signaling.send({
           event: 'join-room',
           data: {
@@ -366,7 +379,13 @@ export function useWebRTC(options: UseWebRTCOptions) {
             rtpCapabilities: deviceRef.current?.rtpCapabilities,
           },
         });
-      }, 500);
+      });
+
+      // Send authenticate request
+      signaling.send({
+        event: 'authenticate',
+        data: { token, organizationId },
+      });
     },
     [signaling, token, organizationId, roomId]
   );
@@ -435,9 +454,9 @@ export function useWebRTC(options: UseWebRTCOptions) {
         const producer = await transport.produce({
           track,
           encodings: [
-            { maxBitrate: 100000, scaleResolutionDownBy: 4 },
-            { maxBitrate: 300000, scaleResolutionDownBy: 2 },
-            { maxBitrate: 900000 },
+            { rid: 'q', maxBitrate: 150000, scaleResolutionDownBy: 4, scalabilityMode: 'L1T3' },
+            { rid: 'h', maxBitrate: 500000, scaleResolutionDownBy: 2, scalabilityMode: 'L1T3' },
+            { rid: 'f', maxBitrate: 1200000, scalabilityMode: 'L1T3' },
           ],
           codecOptions: {
             videoGoogleStartBitrate: 1000,
@@ -493,6 +512,8 @@ export function useWebRTC(options: UseWebRTCOptions) {
           codecOptions: {
             opusStereo: false,
             opusDtx: true,
+            opusFec: true,
+            opusMaxPlaybackRate: 48000,
           },
           appData: { source: 'microphone' },
         });
@@ -641,6 +662,23 @@ export function useWebRTC(options: UseWebRTCOptions) {
       });
     } catch (err) {
       console.error('Failed to consume:', err);
+    }
+  }
+
+  // Handle ICE restart response from server
+  async function handleIceRestarted(data: { transportId: string; iceParameters: any }) {
+    // Find which transport needs the ICE restart applied
+    const sendTransport = sendTransportRef.current;
+    const recvTransport = recvTransportRef.current;
+
+    const transport =
+      sendTransport?.id === data.transportId ? sendTransport :
+      recvTransport?.id === data.transportId ? recvTransport :
+      null;
+
+    if (transport) {
+      await transport.restartIce({ iceParameters: data.iceParameters });
+      console.log('ICE restart completed for transport:', data.transportId);
     }
   }
 
