@@ -32,7 +32,6 @@ interface ConnectedClient {
 
 export class SignalingServer {
   private clients: Map<string, ConnectedClient> = new Map();
-  private roomManager: RoomManager;
   private pingInterval: NodeJS.Timeout | null = null;
 
   constructor(
@@ -41,10 +40,9 @@ export class SignalingServer {
     private sfuManager: SFUManager,
     private redisService: RedisService,
     private rateLimiter: RateLimiterService,
-    private tracing: TracingService
-  ) {
-    this.roomManager = new RoomManager(sfuManager, redisService);
-  }
+    private tracing: TracingService,
+    private roomManager: RoomManager
+  ) {}
 
   start(): void {
     this.wss.on('connection', this.handleConnection.bind(this));
@@ -53,6 +51,48 @@ export class SignalingServer {
     this.pingInterval = setInterval(() => this.pingClients(), 30000);
 
     logger.info('Signaling server started');
+  }
+
+  /** Laravel / HTTP control: disconnect every WebSocket in a room (room already ended server-side). */
+  async disconnectClientsInRoom(roomId: string): Promise<void> {
+    for (const client of this.clients.values()) {
+      if (client.roomId === roomId && client.socket.readyState === WebSocket.OPEN) {
+        client.socket.close(4400, 'Room closed');
+      }
+    }
+  }
+
+  /** Disconnect clients for a given application user in a room (moderation). */
+  async disconnectUserInRoom(roomId: string, userId: string): Promise<void> {
+    for (const client of this.clients.values()) {
+      if (
+        client.roomId === roomId &&
+        client.user?.id === userId &&
+        client.socket.readyState === WebSocket.OPEN
+      ) {
+        client.socket.close(4401, 'Removed from room');
+      }
+    }
+  }
+
+  /** Notify a user to mute locally (client should stop tracks / pause producers). */
+  broadcastMuteRequest(roomId: string, userId: string, mediaType: string): void {
+    for (const client of this.clients.values()) {
+      if (client.roomId === roomId && client.user?.id === userId) {
+        this.send(client, {
+          event: 'error',
+          data: {
+            message: `Moderator requested ${mediaType} mute`,
+            code: 'MODERATOR_MUTE',
+            mediaType,
+          },
+        });
+      }
+    }
+  }
+
+  getRoomManager(): RoomManager {
+    return this.roomManager;
   }
 
   async shutdown(): Promise<void> {
@@ -428,13 +468,18 @@ export class SignalingServer {
     }
 
     try {
+      const mergedAppData =
+        data.appData && typeof data.appData === 'object'
+          ? { ...data.appData, participantId: client.participantId }
+          : { participantId: client.participantId, ...(data.appData || {}) };
+
       const producer = await this.roomManager.produce(
         client.roomId,
         client.participantId,
         data.transportId,
         data.kind,
         data.rtpParameters,
-        data.appData
+        mergedAppData
       );
 
       client.producerIds.add(producer.id);

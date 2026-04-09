@@ -1,5 +1,5 @@
 /**
- * Room Manager - Manages room state and SFU coordination
+ * Room Manager - Manages room state and mediasoup SFU via HTTP control API
  */
 
 import { logger } from '../utils/logger.js';
@@ -7,13 +7,14 @@ import { SFUManager } from './SFUManager.js';
 import { RedisService } from './RedisService.js';
 import { AuthenticatedUser } from './AuthService.js';
 import { ParticipantInfo } from '../types/signaling.js';
+import { sfuFetch } from '../utils/sfuHttp.js';
 
 interface RoomParticipant {
   id: string;
   odUserId: string;
   displayName: string;
   role: string;
-  rtpCapabilities?: any;
+  rtpCapabilities?: unknown;
   sendTransportId?: string;
   recvTransportId?: string;
   producers: Map<string, ProducerState>;
@@ -37,10 +38,29 @@ interface ConsumerState {
 interface RoomState {
   id: string;
   sfuNode: string;
+  sfuHttpOrigin: string;
   routerId: string;
-  routerRtpCapabilities: any;
+  routerRtpCapabilities: unknown;
   participants: Map<string, RoomParticipant>;
   createdAt: Date;
+}
+
+/** SFU HTTP response shape for create transport */
+export interface SfuTransportCreated {
+  id: string;
+  iceParameters: unknown;
+  iceCandidates: unknown[];
+  dtlsParameters: unknown;
+  sctpParameters?: unknown;
+}
+
+/** SFU HTTP response shape for create consumer */
+export interface SfuConsumerCreated {
+  id: string;
+  producerId: string;
+  kind: 'audio' | 'video';
+  rtpParameters: unknown;
+  appData: unknown;
 }
 
 export class RoomManager {
@@ -51,6 +71,24 @@ export class RoomManager {
     private redisService: RedisService
   ) {}
 
+  private async restoreRoomFromCluster(roomId: string): Promise<RoomState | null> {
+    const rec = await this.redisService.getRoomRouter(roomId);
+    if (!rec?.httpOrigin || !rec.routerId) return null;
+
+    const room: RoomState = {
+      id: roomId,
+      sfuNode: rec.httpOrigin.replace(/^https?:\/\//, '').split('/')[0] ?? '',
+      sfuHttpOrigin: rec.httpOrigin,
+      routerId: rec.routerId,
+      routerRtpCapabilities: rec.rtpCapabilities ?? {},
+      participants: new Map(),
+      createdAt: new Date(),
+    };
+    this.rooms.set(roomId, room);
+    logger.info({ roomId }, 'Restored room state from Redis');
+    return room;
+  }
+
   async joinRoom(
     roomId: string,
     user: AuthenticatedUser,
@@ -58,20 +96,24 @@ export class RoomManager {
     displayName: string
   ): Promise<{
     participantId: string;
-    routerRtpCapabilities: any;
+    routerRtpCapabilities: unknown;
     sfuNode: string;
   }> {
-    let room = this.rooms.get(roomId);
+    let room: RoomState | null | undefined = this.rooms.get(roomId);
+
+    if (room === undefined) {
+      room = await this.restoreRoomFromCluster(roomId);
+    }
 
     if (!room) {
-      // Allocate room to SFU
       const allocation = await this.sfuManager.allocateRoom(roomId);
 
       room = {
         id: roomId,
         sfuNode: allocation.node,
+        sfuHttpOrigin: allocation.httpOrigin,
         routerId: allocation.routerId,
-        routerRtpCapabilities: {}, // Would come from SFU
+        routerRtpCapabilities: allocation.rtpCapabilities,
         participants: new Map(),
         createdAt: new Date(),
       };
@@ -79,7 +121,6 @@ export class RoomManager {
       this.rooms.set(roomId, room);
     }
 
-    // Create participant
     const participantId = `p-${user.id}-${Date.now()}`;
     const participant: RoomParticipant = {
       id: participantId,
@@ -110,7 +151,6 @@ export class RoomManager {
 
     room.participants.delete(participantId);
 
-    // Clean up room if empty
     if (room.participants.size === 0) {
       await this.sfuManager.releaseRoom(roomId);
       this.rooms.delete(roomId);
@@ -121,7 +161,7 @@ export class RoomManager {
   async setParticipantRtpCapabilities(
     roomId: string,
     participantId: string,
-    rtpCapabilities: any
+    rtpCapabilities: unknown
   ): Promise<void> {
     const room = this.rooms.get(roomId);
     const participant = room?.participants.get(participantId);
@@ -147,43 +187,52 @@ export class RoomManager {
     }));
   }
 
+  private getRoomOrThrow(roomId: string): RoomState {
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      throw new Error(`Room not found: ${roomId}`);
+    }
+    return room;
+  }
+
   async createTransport(
     roomId: string,
     participantId: string,
     direction: 'send' | 'recv',
-    sctpCapabilities?: any
-  ): Promise<any> {
-    // In production, this would call the SFU node API
-    const transportId = `transport-${direction}-${participantId}-${Date.now()}`;
+    sctpCapabilities?: unknown
+  ): Promise<SfuTransportCreated> {
+    const room = this.getRoomOrThrow(roomId);
+    const participant = room.participants.get(participantId);
+    if (!participant) throw new Error('participant not found');
 
-    const room = this.rooms.get(roomId);
-    const participant = room?.participants.get(participantId);
+    const t = await sfuFetch<SfuTransportCreated>(room.sfuHttpOrigin, `/api/routers/${encodeURIComponent(room.routerId)}/transports`, {
+      method: 'POST',
+      body: JSON.stringify({ direction, sctpCapabilities }),
+    });
 
-    if (participant) {
-      if (direction === 'send') {
-        participant.sendTransportId = transportId;
-      } else {
-        participant.recvTransportId = transportId;
-      }
+    if (direction === 'send') {
+      participant.sendTransportId = t.id;
+    } else {
+      participant.recvTransportId = t.id;
     }
 
-    // Mock transport data - in production this comes from SFU
-    return {
-      id: transportId,
-      iceParameters: { usernameFragment: 'mock', password: 'mock' },
-      iceCandidates: [],
-      dtlsParameters: { fingerprints: [], role: 'auto' },
-      sctpParameters: sctpCapabilities ? {} : undefined,
-    };
+    return t;
   }
 
   async connectTransport(
     roomId: string,
     transportId: string,
-    _dtlsParameters: unknown
+    dtlsParameters: unknown
   ): Promise<void> {
-    // In production, this would call the SFU node API
-    logger.debug({ roomId, transportId }, 'Transport connected');
+    const room = this.getRoomOrThrow(roomId);
+    await sfuFetch(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/transports/${encodeURIComponent(transportId)}/connect`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ dtlsParameters }),
+      }
+    );
   }
 
   async produce(
@@ -191,78 +240,139 @@ export class RoomManager {
     participantId: string,
     transportId: string,
     kind: 'audio' | 'video',
-    rtpParameters: any,
-    appData?: any
+    rtpParameters: unknown,
+    appData?: unknown
   ): Promise<{ id: string }> {
-    const producerId = `producer-${kind}-${participantId}-${Date.now()}`;
+    const room = this.getRoomOrThrow(roomId);
+    const participant = room.participants.get(participantId);
+    if (!participant) throw new Error('participant not found');
 
+    const mergedAppData =
+      appData && typeof appData === 'object'
+        ? { ...(appData as object), participantId }
+        : { participantId };
+
+    const p = await sfuFetch<{ id: string }>(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/producers`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          transportId,
+          kind,
+          rtpParameters,
+          appData: mergedAppData,
+        }),
+      }
+    );
+
+    participant.producers.set(p.id, {
+      id: p.id,
+      kind,
+      source: (mergedAppData as { source?: string }).source || kind,
+      paused: false,
+    });
+
+    return { id: p.id };
+  }
+
+  findProducerKind(roomId: string, producerId: string): 'audio' | 'video' | null {
     const room = this.rooms.get(roomId);
-    const participant = room?.participants.get(participantId);
-
-    if (participant) {
-      participant.producers.set(producerId, {
-        id: producerId,
-        kind,
-        source: appData?.source || kind,
-        paused: false,
-      });
+    if (!room) return null;
+    for (const p of room.participants.values()) {
+      const pr = p.producers.get(producerId);
+      if (pr) return pr.kind;
     }
-
-    return { id: producerId };
+    return null;
   }
 
   async consume(
     roomId: string,
     participantId: string,
     producerId: string,
-    _rtpCapabilities: unknown
-  ): Promise<any | null> {
-    const consumerId = `consumer-${producerId}-${participantId}-${Date.now()}`;
-
-    const room = this.rooms.get(roomId);
-    const participant = room?.participants.get(participantId);
-
-    if (participant) {
-      participant.consumers.set(consumerId, {
-        id: consumerId,
-        producerId,
-        kind: 'video', // Would come from producer
-        paused: true,
-      });
+    rtpCapabilities: unknown
+  ): Promise<SfuConsumerCreated | null> {
+    const room = this.getRoomOrThrow(roomId);
+    const participant = room.participants.get(participantId);
+    if (!participant?.recvTransportId) {
+      throw new Error('Receive transport not created');
     }
 
-    // Mock consumer data
-    return {
-      id: consumerId,
+    const c = await sfuFetch<{
+      id: string;
+      producerId: string;
+      kind: 'audio' | 'video';
+      rtpParameters: unknown;
+      appData: unknown;
+    } | null>(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/consumers`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          transportId: participant.recvTransportId,
+          producerId,
+          rtpCapabilities,
+        }),
+      }
+    );
+
+    if (!c) return null;
+
+    participant.consumers.set(c.id, {
+      id: c.id,
       producerId,
-      kind: 'video',
-      rtpParameters: {},
-      appData: {},
+      kind: c.kind,
+      paused: true,
+    });
+
+    return {
+      id: c.id,
+      producerId,
+      kind: c.kind,
+      rtpParameters: c.rtpParameters,
+      appData: c.appData,
     };
   }
 
   async resumeConsumer(roomId: string, consumerId: string): Promise<void> {
-    // In production, call SFU API
-    logger.debug({ roomId, consumerId }, 'Consumer resumed');
+    const room = this.getRoomOrThrow(roomId);
+    await sfuFetch(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/consumers/${encodeURIComponent(consumerId)}/resume`,
+      { method: 'POST' }
+    );
   }
 
   async pauseProducer(roomId: string, producerId: string): Promise<void> {
-    logger.debug({ roomId, producerId }, 'Producer paused');
+    const room = this.getRoomOrThrow(roomId);
+    await sfuFetch(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/producers/${encodeURIComponent(producerId)}/pause`,
+      { method: 'POST' }
+    );
   }
 
   async resumeProducer(roomId: string, producerId: string): Promise<void> {
-    logger.debug({ roomId, producerId }, 'Producer resumed');
+    const room = this.getRoomOrThrow(roomId);
+    await sfuFetch(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/producers/${encodeURIComponent(producerId)}/resume`,
+      { method: 'POST' }
+    );
   }
 
   async closeProducer(roomId: string, producerId: string): Promise<void> {
-    const room = this.rooms.get(roomId);
-    if (!room) return;
+    const room = this.getRoomOrThrow(roomId);
+    await sfuFetch(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/producers/${encodeURIComponent(producerId)}`,
+      { method: 'DELETE' }
+    );
 
     for (const participant of room.participants.values()) {
       participant.producers.delete(producerId);
     }
-
-    logger.debug({ roomId, producerId }, 'Producer closed');
   }
 
   async setPreferredLayers(
@@ -271,15 +381,30 @@ export class RoomManager {
     spatialLayer: number,
     temporalLayer?: number
   ): Promise<void> {
-    logger.debug(
-      { roomId, consumerId, spatialLayer, temporalLayer },
-      'Preferred layers set'
+    const room = this.getRoomOrThrow(roomId);
+    await sfuFetch(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/consumers/${encodeURIComponent(consumerId)}/layers`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ spatialLayer, temporalLayer }),
+      }
     );
   }
 
-  async getRouterRtpCapabilities(roomId: string): Promise<any> {
+  async getRouterRtpCapabilities(roomId: string): Promise<unknown> {
     const room = this.rooms.get(roomId);
     return room?.routerRtpCapabilities || {};
+  }
+
+  getRoomRouterId(roomId: string): string | undefined {
+    return this.rooms.get(roomId)?.routerId;
+  }
+
+  /** Drop in-memory state and tear down SFU router (Laravel close room). */
+  async destroyRoom(roomId: string): Promise<void> {
+    this.rooms.delete(roomId);
+    await this.sfuManager.releaseRoom(roomId);
   }
 
   async shutdown(): Promise<void> {

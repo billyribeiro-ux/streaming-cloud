@@ -19,6 +19,8 @@ import { AuthService } from './services/AuthService.js';
 import { RateLimiterService, DEFAULT_RATE_LIMIT_CONFIG } from './services/RateLimiterService.js';
 import { TracingService } from './services/TracingService.js';
 import { healthRouter } from './controllers/health.js';
+import { createRoomsControlRouter } from './controllers/roomsControl.js';
+import { RoomManager } from './services/RoomManager.js';
 
 async function main(): Promise<void> {
   logger.info('Starting Trading Room Signaling Server...');
@@ -32,7 +34,7 @@ async function main(): Promise<void> {
   // Health check endpoints
   app.use('/health', healthRouter);
 
-  // Create HTTP server
+  // Create HTTP server (needed before WS + control API)
   const server = createServer(app);
 
   // Initialize services
@@ -46,6 +48,8 @@ async function main(): Promise<void> {
   const sfuManager = new SFUManager(config.sfu, redisService);
   await sfuManager.initialize();
   logger.info('SFU Manager initialized');
+
+  const roomManager = new RoomManager(sfuManager, redisService);
 
   // Initialize rate limiter
   const rateLimiter = new RateLimiterService(
@@ -72,7 +76,18 @@ async function main(): Promise<void> {
     sfuManager,
     redisService,
     rateLimiter,
-    tracing
+    tracing,
+    roomManager
+  );
+
+  app.use(
+    '/api',
+    createRoomsControlRouter({
+      controlSecret: config.signalingControlSecret,
+      sfuManager,
+      roomManager,
+      signalingServer,
+    })
   );
 
   signalingServer.start();

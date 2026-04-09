@@ -28,6 +28,8 @@ export interface Config {
   port: number;
   host: string;
   nodeId: string;
+  /** Same value as Laravel SIGNALING_SERVER_SECRET — protects /api/* on SFU */
+  controlPlaneSecret: string;
   redis: RedisConfig;
   mediasoup: MediasoupConfig;
   cors: CorsConfig;
@@ -41,10 +43,18 @@ function parseArray(value: string | undefined, defaultValue: string[] = []): str
     .filter(Boolean);
 }
 
+const sfuPort = parseInt(process.env.PORT || '4000', 10);
+
 export const config: Config = {
-  port: parseInt(process.env.PORT || '4000', 10),
+  port: sfuPort,
   host: process.env.HOST || '0.0.0.0',
-  nodeId: process.env.NODE_ID || `sfu-${process.pid}`,
+  controlPlaneSecret:
+    process.env.SIGNALING_SERVER_SECRET ||
+    process.env.SFU_INTERNAL_SECRET ||
+    'dev-secret',
+  nodeId:
+    process.env.NODE_ID ||
+    `sfu-${process.env.SFU_PUBLIC_HOST || 'localhost'}-${sfuPort}`,
   redis: {
     url: process.env.REDIS_URL,
     host: process.env.REDIS_HOST || 'localhost',

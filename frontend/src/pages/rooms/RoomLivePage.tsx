@@ -12,10 +12,12 @@
  * - Layout adapts: grid view vs spotlight view
  */
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { X, Maximize2, Grid, Focus, AlertCircle } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { api } from '../../lib/api';
+import { httpSignalingUrlToWebSocket } from '../../lib/signalingUrl';
 import { useWebRTC } from '../../hooks/useWebRTC';
 import {
   useRoomStore,
@@ -47,38 +49,93 @@ function RoomLivePage() {
   const setSpotlight = useRoomStore((state) => state.setSpotlight);
   const reset = useRoomStore((state) => state.reset);
 
-  // WebRTC
-  const signalingUrl =
-    import.meta.env.VITE_SIGNALING_URL || 'ws://localhost:3001';
+  const [joinSession, setJoinSession] = useState<{
+    signalingJwt: string;
+    signalingWsUrl: string;
+    role: string;
+  } | null>(null);
+  const [joinLoading, setJoinLoading] = useState(true);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
+  // WebRTC — use JWT + URL from POST /v1/rooms/:id/join (not the Sanctum API token)
+  const fallbackWs =
+    import.meta.env.VITE_SIGNALING_URL ||
+    httpSignalingUrlToWebSocket(
+      import.meta.env.VITE_SIGNALING_HTTP_URL || 'http://localhost:4000'
+    );
 
   const webrtc = useWebRTC({
-    signalingUrl,
-    token: token || '',
+    signalingUrl: joinSession?.signalingWsUrl || fallbackWs,
+    token: joinSession?.signalingJwt || '',
     roomId: roomId || '',
     organizationId: user?.organizationId || '',
   });
 
-  // Connect on mount
   useEffect(() => {
-    if (roomId && token) {
-      webrtc.connect();
+    if (!roomId || !token) {
+      setJoinLoading(false);
+      return;
     }
-
+    let cancelled = false;
+    (async () => {
+      try {
+        setJoinLoading(true);
+        setJoinError(null);
+        const res = await api.post<{
+          data: {
+            token: string;
+            signaling_url: string;
+            role: string;
+          };
+        }>(`/v1/rooms/${roomId}/join`, {});
+        if (cancelled) return;
+        setJoinSession({
+          signalingJwt: res.data.token,
+          signalingWsUrl: httpSignalingUrlToWebSocket(res.data.signaling_url),
+          role: res.data.role,
+        });
+      } catch (e) {
+        if (!cancelled) {
+          setJoinError(
+            e instanceof Error ? e.message : 'Could not join this room'
+          );
+        }
+      } finally {
+        if (!cancelled) setJoinLoading(false);
+      }
+    })();
     return () => {
-      reset();
+      cancelled = true;
     };
   }, [roomId, token]);
 
+  // Connect after join payload is ready
+  useEffect(() => {
+    if (!joinSession || !roomId) return;
+    webrtc.connect();
+    return () => {
+      webrtc.disconnect();
+      reset();
+    };
+  }, [joinSession, roomId, webrtc.connect, webrtc.disconnect, reset]);
+
   // Join room once connected
   useEffect(() => {
-    if (webrtc.isConnected && !webrtc.isJoined && user) {
-      webrtc.joinRoom(user.displayName || user.name, 'viewer');
+    if (webrtc.isConnected && !webrtc.isJoined && user && joinSession) {
+      webrtc.joinRoom(user.displayName || user.name, joinSession.role);
     }
-  }, [webrtc.isConnected, webrtc.isJoined, user]);
+  }, [webrtc.isConnected, webrtc.isJoined, user, joinSession]);
 
   // Handle leave room
   const handleLeave = useCallback(async () => {
     await webrtc.leaveRoom();
+    if (roomId) {
+      try {
+        await api.post(`/v1/rooms/${roomId}/leave`, {});
+      } catch {
+        // Navigate even if the API call fails
+      }
+    }
     navigate(`/rooms/${roomId}`);
   }, [webrtc, navigate, roomId]);
 
@@ -127,6 +184,52 @@ function RoomLivePage() {
     if (count <= 9) return 'grid-cols-3';
     return 'grid-cols-3 sm:grid-cols-4';
   };
+
+  if (!roomId) {
+    return null;
+  }
+
+  if (!token) {
+    return (
+      <div className="h-screen bg-gray-950 flex items-center justify-center text-gray-400 text-sm">
+        Sign in to join this room.
+      </div>
+    );
+  }
+
+  if (joinLoading) {
+    return (
+      <div className="h-screen bg-gray-950 flex items-center justify-center text-gray-400 text-sm">
+        Joining room…
+      </div>
+    );
+  }
+
+  if (joinError) {
+    return (
+      <div className="h-screen bg-gray-950 flex flex-col items-center justify-center gap-4 p-6">
+        <div className="flex items-center gap-2 text-red-400 text-sm max-w-md text-center">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{joinError}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate(`/rooms/${roomId}`)}
+          className="px-4 py-2 rounded-lg bg-gray-800 text-white text-sm hover:bg-gray-700"
+        >
+          Back to room
+        </button>
+      </div>
+    );
+  }
+
+  if (!joinSession) {
+    return (
+      <div className="h-screen bg-gray-950 flex items-center justify-center text-gray-400 text-sm">
+        Unable to join this room.
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-gray-950 flex flex-col overflow-hidden">

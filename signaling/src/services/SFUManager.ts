@@ -4,6 +4,7 @@
 
 import { logger } from '../utils/logger.js';
 import { RedisService } from './RedisService.js';
+import { sfuFetch } from '../utils/sfuHttp.js';
 
 interface SFUConfig {
   nodes: string[];
@@ -24,13 +25,12 @@ export class SFUManager {
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
   constructor(
-    private config: SFUConfig,
+    private _config: SFUConfig,
     private redisService: RedisService
   ) {}
 
   async initialize(): Promise<void> {
-    // Parse node configurations
-    for (const nodeStr of this.config.nodes) {
+    for (const nodeStr of this._config.nodes) {
       const [host, portStr] = nodeStr.split(':');
       const port = parseInt(portStr || '4000', 10);
       const nodeId = `sfu-${host}-${port}`;
@@ -45,7 +45,6 @@ export class SFUManager {
       });
     }
 
-    // Start health checking
     this.healthCheckInterval = setInterval(() => this.checkHealth(), 10000);
 
     logger.info({ nodeCount: this.nodes.size }, 'SFU Manager initialized');
@@ -58,9 +57,6 @@ export class SFUManager {
     logger.info('SFU Manager shut down');
   }
 
-  /**
-   * Get the best SFU node for a new room based on load
-   */
   async getBestNode(): Promise<SFUNode | null> {
     const healthyNodes = Array.from(this.nodes.values()).filter((n) => n.isHealthy);
 
@@ -69,58 +65,81 @@ export class SFUManager {
       return null;
     }
 
-    // Sort by load and return least loaded
     healthyNodes.sort((a, b) => a.load - b.load);
     return healthyNodes[0];
   }
 
   /**
-   * Allocate a room to an SFU node
+   * Allocate a room on an SFU node (creates mediasoup router via HTTP).
    */
   async allocateRoom(roomId: string): Promise<{
     node: string;
     routerId: string;
-    iceServers: any[];
+    iceServers: unknown[];
+    rtpCapabilities: unknown;
+    httpOrigin: string;
   }> {
-    // Check if room already has an allocation
     const existing = await this.redisService.getRoomRouter(roomId);
     if (existing) {
       return {
-        node: existing.nodeId,
+        node: existing.httpOrigin.replace(/^https?:\/\//, '').split('/')[0] ?? '',
         routerId: existing.routerId,
         iceServers: this.getIceServers(),
+        rtpCapabilities: existing.rtpCapabilities ?? {},
+        httpOrigin: existing.httpOrigin,
       };
     }
 
-    // Get best node
     const node = await this.getBestNode();
     if (!node) {
       throw new Error('No available SFU nodes');
     }
 
-    // In a real implementation, this would call the SFU node's API
-    // to create a router and return the routerId
-    const routerId = `router-${roomId}-${Date.now()}`;
+    const httpOrigin = `http://${node.host}:${node.port}`;
 
-    // Store allocation
+    const created = await sfuFetch<{ routerId: string; rtpCapabilities: unknown }>(
+      httpOrigin,
+      `/api/rooms/${encodeURIComponent(roomId)}/router`,
+      { method: 'POST' }
+    );
+
     await this.redisService.setRoomRouter(roomId, {
       nodeId: node.id,
-      routerId,
+      routerId: created.routerId,
+      httpOrigin,
+      rtpCapabilities: created.rtpCapabilities,
     });
 
-    logger.info({ roomId, nodeId: node.id, routerId }, 'Room allocated to SFU node');
+    logger.info(
+      { roomId, nodeId: node.id, routerId: created.routerId },
+      'Room allocated on SFU'
+    );
 
     return {
       node: `${node.host}:${node.port}`,
-      routerId,
+      routerId: created.routerId,
       iceServers: this.getIceServers(),
+      rtpCapabilities: created.rtpCapabilities,
+      httpOrigin,
     };
   }
 
   /**
-   * Release a room allocation
+   * Release SFU router and Redis mapping.
    */
   async releaseRoom(roomId: string): Promise<void> {
+    const rec = await this.redisService.getRoomRouter(roomId);
+    if (rec) {
+      try {
+        await sfuFetch(
+          rec.httpOrigin,
+          `/api/routers/${encodeURIComponent(rec.routerId)}`,
+          { method: 'DELETE' }
+        );
+      } catch (e) {
+        logger.warn({ roomId, error: e }, 'SFU closeRouter failed (continuing)');
+      }
+    }
     await this.redisService.deleteRoomRouter(roomId);
     logger.info({ roomId }, 'Room released from SFU');
   }
@@ -128,20 +147,17 @@ export class SFUManager {
   private async checkHealth(): Promise<void> {
     for (const [nodeId, node] of this.nodes) {
       try {
-        // In production, this would make an HTTP request to the node's health endpoint
-        // For now, we'll check Redis for heartbeat
         const heartbeat = await this.redisService.get(`sfu:node:${nodeId}:heartbeat`);
 
         if (heartbeat) {
           const lastBeat = parseInt(heartbeat, 10);
           const age = Date.now() - lastBeat;
-          node.isHealthy = age < 60000; // Consider unhealthy if no heartbeat for 60s
+          node.isHealthy = age < 60000;
         }
 
-        // Update load from stats
         const statsStr = await this.redisService.get(`sfu:node:${nodeId}:stats`);
         if (statsStr) {
-          const stats = JSON.parse(statsStr);
+          const stats = JSON.parse(statsStr) as { routers?: number };
           node.load = stats.routers || 0;
         }
 
@@ -153,14 +169,18 @@ export class SFUManager {
     }
   }
 
-  private getIceServers(): any[] {
+  private getIceServers(): unknown[] {
     return [
       { urls: process.env.STUN_SERVER_URL || 'stun:stun.l.google.com:19302' },
-      {
-        urls: process.env.TURN_SERVER_URL || 'turn:turn.example.com:3478',
-        username: process.env.TURN_SERVER_USERNAME || 'user',
-        credential: process.env.TURN_SERVER_CREDENTIAL || 'pass',
-      },
+      ...(process.env.TURN_SERVER_URL
+        ? [
+            {
+              urls: process.env.TURN_SERVER_URL,
+              username: process.env.TURN_SERVER_USERNAME || '',
+              credential: process.env.TURN_SERVER_CREDENTIAL || '',
+            },
+          ]
+        : []),
     ];
   }
 }

@@ -116,11 +116,26 @@ export class RedisService {
     await this.set(`sfu:node:${nodeId}:heartbeat`, Date.now().toString(), 30);
   }
 
-  async setRoomRouter(roomId: string, info: { nodeId: string; routerId: string }): Promise<void> {
+  async setRoomRouter(
+    roomId: string,
+    info: {
+      nodeId: string;
+      routerId: string;
+      httpOrigin: string;
+      rtpCapabilities?: unknown;
+    }
+  ): Promise<void> {
     await this.hset('room:routers', roomId, JSON.stringify(info));
   }
 
-  async getRoomRouter(roomId: string): Promise<{ nodeId: string; routerId: string } | null> {
+  async getRoomRouter(
+    roomId: string
+  ): Promise<{
+    nodeId: string;
+    routerId: string;
+    httpOrigin: string;
+    rtpCapabilities?: unknown;
+  } | null> {
     const data = await this.hget('room:routers', roomId);
     return data ? JSON.parse(data) : null;
   }

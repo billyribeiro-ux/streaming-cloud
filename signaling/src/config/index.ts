@@ -39,6 +39,8 @@ export interface Config {
   sfu: SFUConfig;
   cors: CorsConfig;
   jwtSecret: string;
+  /** Laravel SIGNALING_SERVER_SECRET — Bearer for /api/rooms/* control routes */
+  signalingControlSecret: string;
 }
 
 function parseArray(value: string | undefined, defaultValue: string[] = []): string[] {
@@ -77,4 +79,9 @@ export const config: Config = {
   },
 
   jwtSecret: process.env.JWT_SECRET || 'dev-jwt-secret',
+
+  signalingControlSecret:
+    process.env.SIGNALING_SERVER_SECRET ||
+    process.env.SFU_SECRET ||
+    'dev-secret',
 };

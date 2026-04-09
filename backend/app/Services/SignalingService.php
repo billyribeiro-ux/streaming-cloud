@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Room;
 use App\Models\RoomParticipant;
 use App\Models\User;
+use Firebase\JWT\JWT;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -33,23 +34,21 @@ class SignalingService
      */
     public function generateToken(Room $room, User $user, RoomParticipant $participant): string
     {
+        $now = time();
         $payload = [
+            'iss' => (string) config('app.url'),
+            'sub' => (string) $user->id,
+            'user_id' => (string) $user->id,
             'room_id' => $room->id,
-            'user_id' => $user->id,
             'participant_id' => $participant->id,
+            'organization_id' => (string) $room->organization_id,
             'role' => $participant->role,
             'display_name' => $user->display_name ?? $user->name,
-            'iat' => time(),
-            'exp' => time() + 3600, // 1 hour expiry
+            'iat' => $now,
+            'exp' => $now + 3600, // 1 hour expiry
         ];
 
-        $header = base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
-        $payloadEncoded = base64_encode(json_encode($payload));
-        $signature = base64_encode(
-            hash_hmac('sha256', "{$header}.{$payloadEncoded}", $this->secret, true)
-        );
-
-        return "{$header}.{$payloadEncoded}.{$signature}";
+        return JWT::encode($payload, $this->secret, 'HS256');
     }
 
     /**

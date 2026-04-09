@@ -17,8 +17,15 @@ export interface AuthenticatedUser {
 }
 
 interface JWTPayload {
-  sub: string;
+  sub?: string;
+  /** Laravel SignalingService token uses user_id */
+  user_id?: string;
   email?: string;
+  organization_id?: string;
+  room_id?: string;
+  participant_id?: string;
+  role?: string;
+  display_name?: string;
   app_metadata?: {
     organization_id?: string;
     organization_role?: string;
@@ -30,6 +37,8 @@ interface JWTPayload {
 export class AuthService {
   private pool: Pool;
   private jwtSecret: string;
+  /** Must match Laravel `services.signaling.secret` for participant JWTs */
+  private signalingTokenSecret: string;
 
   constructor(dbConfig: DatabaseConfig, jwtSecret: string) {
     // Use connection string if available, otherwise use individual params
@@ -49,6 +58,8 @@ export class AuthService {
       });
     }
     this.jwtSecret = jwtSecret;
+    this.signalingTokenSecret =
+      process.env.SIGNALING_SERVER_SECRET || jwtSecret;
 
     // Test connection on startup
     this.pool.query('SELECT NOW()').then(() => {
@@ -61,16 +72,17 @@ export class AuthService {
   async verifyToken(token: string): Promise<AuthenticatedUser> {
     try {
       // Verify JWT signature
-      const decoded = jwt.verify(token, this.jwtSecret) as JWTPayload;
+      const decoded = jwt.verify(token, this.signalingTokenSecret) as JWTPayload;
 
-      if (!decoded.sub) {
-        throw new Error('Invalid token: missing subject');
+      const userId = decoded.sub || decoded.user_id;
+      if (!userId) {
+        throw new Error('Invalid token: missing subject / user_id');
       }
 
       // Get user from database
       const result = await this.pool.query(
         'SELECT id, email FROM users WHERE id = $1',
-        [decoded.sub]
+        [userId]
       );
 
       if (result.rows.length === 0) {
@@ -79,12 +91,17 @@ export class AuthService {
 
       const user = result.rows[0];
 
+      const orgRole =
+        decoded.app_metadata?.organization_role ||
+        (decoded.role as string | undefined);
+
       return {
         id: user.id,
         email: user.email || decoded.email || '',
-        organizationId: decoded.app_metadata?.organization_id,
-        role: decoded.app_metadata?.organization_role,
-        permissions: this.getPermissionsForRole(decoded.app_metadata?.organization_role),
+        organizationId:
+          decoded.app_metadata?.organization_id || decoded.organization_id,
+        role: orgRole,
+        permissions: this.getPermissionsForRole(orgRole),
       };
     } catch (error) {
       logger.error({ error }, 'Token verification failed');
