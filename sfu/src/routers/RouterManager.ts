@@ -159,7 +159,7 @@ export class RouterManager {
     });
 
     transport.on('icestatechange', (iceState) => {
-      if (iceState === 'disconnected' || iceState === 'failed') {
+      if (iceState === 'disconnected' || iceState === 'closed') {
         logger.warn(
           { transportId: transport.id, iceState },
           'Transport ICE state changed'

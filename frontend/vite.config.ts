@@ -39,28 +39,30 @@ export default defineConfig(({ mode }) => {
       sourcemap: true,
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: [
-              'zustand',
-              'react-router-dom',
-              'react-hook-form',
-              'zod',
-              '@tanstack/react-query',
-              'date-fns',
-              'clsx',
-              'tailwind-merge',
-              'class-variance-authority',
-            ],
-            react: ['react', 'react-dom'],
-            mediasoup: ['mediasoup-client'],
-            ui: [
-              '@radix-ui/react-toast',
-              '@radix-ui/react-dialog',
-              '@radix-ui/react-dropdown-menu',
-              '@radix-ui/react-popover',
-              '@radix-ui/react-tooltip',
-              'lucide-react',
-            ],
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return;
+            if (id.includes('mediasoup-client')) return 'mediasoup';
+            if (id.includes('react-dom') || id.includes('/react/')) return 'react';
+            if (
+              id.includes('@radix-ui') ||
+              id.includes('lucide-react') ||
+              id.includes('@radix-ui/react-popover')
+            ) {
+              return 'ui';
+            }
+            if (
+              id.includes('zustand') ||
+              id.includes('react-router') ||
+              id.includes('react-hook-form') ||
+              id.includes('zod') ||
+              id.includes('@tanstack/react-query') ||
+              id.includes('date-fns') ||
+              id.includes('clsx') ||
+              id.includes('tailwind-merge') ||
+              id.includes('class-variance-authority')
+            ) {
+              return 'vendor';
+            }
           },
         },
       },

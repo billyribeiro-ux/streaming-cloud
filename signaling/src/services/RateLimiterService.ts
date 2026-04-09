@@ -9,7 +9,7 @@
 
 import { RateLimiterRedis, RateLimiterMemory } from 'rate-limiter-flexible';
 import { logger } from '../utils/logger.js';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 
 export interface RateLimiterConfig {
   // Connection rate limiting (per IP)
@@ -74,7 +74,7 @@ export class RateLimiterService {
       duration: config.messageDuration,
     });
 
-    logger.info('Rate limiter service initialized', { config });
+    logger.info({ config }, 'Rate limiter service initialized');
   }
 
   /**
@@ -152,7 +152,7 @@ export class RateLimiterService {
     try {
       const res = await this.messageLimiter.get(key);
       return res ? res.remainingPoints : this.config.messagePoints;
-    } catch (error) {
+    } catch {
       return this.config.messagePoints;
     }
   }

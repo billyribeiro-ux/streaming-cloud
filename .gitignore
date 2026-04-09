@@ -1,0 +1,70 @@
+# =============================================================================
+# Streaming Cloud – monorepo root
+# =============================================================================
+
+# --- Dependencies ---
+node_modules/
+vendor/
+
+# --- Environment & secrets ---
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.*.example
+*.pem
+
+# --- Build outputs ---
+dist/
+dist-ssr/
+build/
+out/
+*.tsbuildinfo
+
+# --- Logs ---
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Tests & coverage ---
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# --- Tooling caches ---
+.cache/
+.parcel-cache/
+.turbo/
+.vite/
+.eslintcache
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- IDE / editors ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+
+# --- PHP / Composer (local machine auth; never commit) ---
+auth.json
+
+# --- Docker (local-only overrides) ---
+**/docker-compose.override.yml
+
+# --- Scratch ---
+*.local
+tmp/
+temp/

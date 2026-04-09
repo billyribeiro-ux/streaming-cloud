@@ -8,12 +8,11 @@
  * - Spotlight/Pin functionality
  */
 
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { cn } from '../../utils/cn';
 import {
   Mic,
   MicOff,
-  Video,
   VideoOff,
   Pin,
   MoreVertical,

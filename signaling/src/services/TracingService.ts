@@ -91,14 +91,17 @@ export class TracingService {
       error,
     };
 
-    logger.info('Trace span completed', {
-      trace_id: spanData.traceId,
-      span_id: spanData.spanId,
-      parent_span_id: spanData.parentSpanId,
-      operation: spanData.operationName,
-      duration_ms: spanData.duration,
-      status: spanData.status,
-    });
+    logger.info(
+      {
+        trace_id: spanData.traceId,
+        span_id: spanData.spanId,
+        parent_span_id: spanData.parentSpanId,
+        operation: spanData.operationName,
+        duration_ms: spanData.duration,
+        status: spanData.status,
+      },
+      'Trace span completed'
+    );
 
     // Export to collector
     this.exportSpan(spanData);

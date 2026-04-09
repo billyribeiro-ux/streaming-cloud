@@ -1,0 +1,7 @@
+# Aligned with repo root .gitignore — explicit for this package
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example

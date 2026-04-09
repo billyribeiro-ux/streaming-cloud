@@ -223,7 +223,7 @@ function RoomLivePage() {
                     displayName={spotlightedParticipant.displayName}
                     isVideoEnabled={spotlightedParticipant.isVideoEnabled}
                     isMuted={!spotlightedParticipant.isAudioEnabled}
-                    isScreenSharing={spotlightedParticipant.isScreenSharing}
+                    isScreenShare={spotlightedParticipant.isScreenSharing}
                     isSpotlighted
                     connectionQuality={
                       spotlightedParticipant.connectionQuality
@@ -321,7 +321,7 @@ function RoomLivePage() {
                     displayName={participant.displayName}
                     isVideoEnabled={participant.isVideoEnabled}
                     isMuted={!participant.isAudioEnabled}
-                    isScreenSharing={participant.isScreenSharing}
+                    isScreenShare={participant.isScreenSharing}
                     isSpotlighted={
                       participant.id ===
                       useRoomStore.getState().spotlightedParticipantId

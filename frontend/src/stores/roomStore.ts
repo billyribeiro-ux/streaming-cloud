@@ -11,7 +11,7 @@
 import { create } from 'zustand';
 import { devtools, subscribeWithSelector } from 'zustand/middleware';
 
-interface Participant {
+export interface Participant {
   id: string;
   userId: string;
   displayName: string;
@@ -24,7 +24,7 @@ interface Participant {
   producers: ProducerInfo[];
 }
 
-interface ProducerInfo {
+export interface ProducerInfo {
   id: string;
   kind: 'audio' | 'video';
   source: 'camera' | 'microphone' | 'screen';
@@ -132,7 +132,7 @@ const initialState = {
 
 export const useRoomStore = create<RoomState>()(
   devtools(
-    subscribeWithSelector((set, get) => ({
+    subscribeWithSelector((set) => ({
       ...initialState,
 
       setRoom: (roomId, roomName, settings) => {

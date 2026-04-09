@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Toast, ToastProvider, ToastViewport } from '@radix-ui/react-toast';
+import { ToastProvider, ToastViewport } from '@radix-ui/react-toast';
 
 import LazyRoutes from './routes/LazyRoutes';
 import { useAuthStore } from './stores/authStore';

@@ -164,7 +164,7 @@ export class WorkerManager {
         if (!workerInfo.worker.closed) {
           try {
             workerInfo.usage = await workerInfo.worker.getResourceUsage();
-          } catch (error) {
+          } catch {
             // Worker might have died
           }
         }

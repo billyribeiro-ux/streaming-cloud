@@ -14,12 +14,7 @@ import { RedisService } from './RedisService.js';
 import { RoomManager } from './RoomManager.js';
 import { RateLimiterService } from './RateLimiterService.js';
 import { TracingService, TraceContext } from './TracingService.js';
-import {
-  SignalingMessage,
-  ClientMessage,
-  ServerMessage,
-  ParticipantInfo,
-} from '../types/signaling.js';
+import { ClientMessage, ServerMessage } from '../types/signaling.js';
 
 interface ConnectedClient {
   id: string;

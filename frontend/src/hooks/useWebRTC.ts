@@ -15,9 +15,18 @@ import type {
   Producer,
   Consumer,
   RtpCapabilities,
-} from 'mediasoup-client/lib/types';
+  DtlsParameters,
+  RtpParameters,
+  MediaKind,
+  AppData,
+  ConnectionState,
+} from 'mediasoup-client/types';
 import { useSignaling } from './useSignaling';
-import { useRoomStore } from '../stores/roomStore';
+import {
+  useRoomStore,
+  type Participant,
+  type ProducerInfo,
+} from '../stores/roomStore';
 
 interface MediaState {
   video: boolean;
@@ -25,18 +34,28 @@ interface MediaState {
   screen: boolean;
 }
 
-interface Participant {
-  id: string;
-  userId: string;
-  displayName: string;
-  role: string;
-  producers: ProducerInfo[];
-}
-
-interface ProducerInfo {
-  id: string;
-  kind: 'audio' | 'video';
-  source: 'camera' | 'microphone' | 'screen';
+function mapServerParticipant(
+  p: Partial<Participant> & {
+    id: string;
+    producers?: ProducerInfo[];
+    joinedAt?: Date | string | number;
+  }
+): Participant {
+  return {
+    id: p.id,
+    userId: p.userId ?? '',
+    displayName: p.displayName ?? 'Unknown',
+    role: (p.role as Participant['role']) ?? 'viewer',
+    isVideoEnabled: p.isVideoEnabled ?? false,
+    isAudioEnabled: p.isAudioEnabled ?? false,
+    isScreenSharing: p.isScreenSharing ?? false,
+    connectionQuality: p.connectionQuality ?? 'unknown',
+    joinedAt:
+      p.joinedAt instanceof Date
+        ? p.joinedAt
+        : new Date(p.joinedAt ?? Date.now()),
+    producers: p.producers ?? [],
+  };
 }
 
 interface ConsumerInfo {
@@ -88,7 +107,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
       setIsConnected(false);
       setIsJoined(false);
     },
-    onError: (err) => setError(err.message),
+    onError: () => setError('WebSocket connection error'),
     onMessage: handleSignalingMessage,
   });
 
@@ -159,21 +178,21 @@ export function useWebRTC(options: UseWebRTCOptions) {
     roomId: string;
     participantId: string;
     routerRtpCapabilities: RtpCapabilities;
-    participants: Participant[];
+    participants: Partial<Participant> & { id: string }[];
   }) {
     try {
       // Initialize mediasoup device
       await initializeDevice(data.routerRtpCapabilities);
       setIsJoined(true);
 
-      // Set initial participants
-      setParticipants(data.participants);
+      const normalizedParticipants = data.participants.map(mapServerParticipant);
+      setParticipants(normalizedParticipants);
 
       // Create transports
       await createTransports();
 
       // Consume existing producers
-      for (const participant of data.participants) {
+      for (const participant of normalizedParticipants) {
         for (const producer of participant.producers) {
           await consumeProducer(producer.id);
         }
@@ -225,7 +244,13 @@ export function useWebRTC(options: UseWebRTCOptions) {
       transport = device.createSendTransport(transportOptions);
       sendTransportRef.current = transport;
 
-      transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+      transport.on(
+        'connect',
+        async (
+          { dtlsParameters }: { dtlsParameters: DtlsParameters },
+          callback: () => void,
+          errback: (error: Error) => void
+        ) => {
         try {
           signaling.send({
             event: 'connect-transport',
@@ -235,9 +260,24 @@ export function useWebRTC(options: UseWebRTCOptions) {
         } catch (err) {
           errback(err as Error);
         }
-      });
+      }
+      );
 
-      transport.on('produce', async ({ kind, rtpParameters, appData }, callback, errback) => {
+      transport.on(
+        'produce',
+        async (
+          {
+            kind,
+            rtpParameters,
+            appData,
+          }: {
+            kind: MediaKind;
+            rtpParameters: RtpParameters;
+            appData: AppData;
+          },
+          callback: (result: { id: string }) => void,
+          errback: (error: Error) => void
+        ) => {
         try {
           signaling.send({
             event: 'produce',
@@ -255,12 +295,19 @@ export function useWebRTC(options: UseWebRTCOptions) {
         } catch (err) {
           errback(err as Error);
         }
-      });
+      }
+      );
     } else {
       transport = device.createRecvTransport(transportOptions);
       recvTransportRef.current = transport;
 
-      transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+      transport.on(
+        'connect',
+        async (
+          { dtlsParameters }: { dtlsParameters: DtlsParameters },
+          callback: () => void,
+          errback: (error: Error) => void
+        ) => {
         try {
           signaling.send({
             event: 'connect-transport',
@@ -270,10 +317,11 @@ export function useWebRTC(options: UseWebRTCOptions) {
         } catch (err) {
           errback(err as Error);
         }
-      });
+      }
+      );
     }
 
-    transport.on('connectionstatechange', (state) => {
+    transport.on('connectionstatechange', (state: ConnectionState) => {
       console.log(`Transport ${data.direction} connection state:`, state);
       if (state === 'failed') {
         transport.close();

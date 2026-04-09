@@ -180,7 +180,7 @@ export class RoomManager {
   async connectTransport(
     roomId: string,
     transportId: string,
-    dtlsParameters: any
+    _dtlsParameters: unknown
   ): Promise<void> {
     // In production, this would call the SFU node API
     logger.debug({ roomId, transportId }, 'Transport connected');
@@ -215,7 +215,7 @@ export class RoomManager {
     roomId: string,
     participantId: string,
     producerId: string,
-    rtpCapabilities: any
+    _rtpCapabilities: unknown
   ): Promise<any | null> {
     const consumerId = `consumer-${producerId}-${participantId}-${Date.now()}`;
 

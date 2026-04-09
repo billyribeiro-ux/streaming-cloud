@@ -82,7 +82,7 @@ function GridLayout({
   participants,
   localStream,
   consumers,
-  localParticipantId,
+  localParticipantId: _localParticipantId,
   onSpotlight,
 }: Omit<VideoGridProps, 'layoutMode'>) {
   const totalCount = participants.length + (localStream ? 1 : 0);
@@ -132,7 +132,7 @@ function SpotlightLayout({
   localStream,
   consumers,
   spotlightedId,
-  localParticipantId,
+  localParticipantId: _localParticipantId,
   onSpotlight,
 }: Omit<VideoGridProps, 'layoutMode'>) {
   const spotlighted = useMemo(() => {
@@ -236,7 +236,7 @@ function SidebarLayout({
   localStream,
   consumers,
   spotlightedId,
-  localParticipantId,
+  localParticipantId: _localParticipantId,
   onSpotlight,
 }: Omit<VideoGridProps, 'layoutMode'>) {
   const spotlighted = useMemo(() => {
