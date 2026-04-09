@@ -66,6 +66,15 @@ interface ConsumerInfo {
   participantId: string;
 }
 
+type ConnectionQualityLevel = 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
+
+function mapScoreToQuality(score: number): ConnectionQualityLevel {
+  if (score >= 8) return 'excellent';
+  if (score >= 5) return 'good';
+  if (score >= 3) return 'fair';
+  return 'poor';
+}
+
 interface UseWebRTCOptions {
   signalingUrl: string;
   token: string;
@@ -96,8 +105,13 @@ export function useWebRTC(options: UseWebRTCOptions) {
   const producersRef = useRef<Map<string, Producer>>(new Map());
   const consumersRef = useRef<Map<string, Consumer>>(new Map());
 
+  // Connection quality per participant
+  const [connectionQuality, setConnectionQuality] = useState<
+    Map<string, 'excellent' | 'good' | 'fair' | 'poor' | 'unknown'>
+  >(new Map());
+
   // Store
-  const { setParticipants, addParticipant, removeParticipant } = useRoomStore();
+  const { setParticipants, addParticipant, removeParticipant, updateParticipant } = useRoomStore();
 
   // Signaling connection
   const signaling = useSignaling({
@@ -642,6 +656,29 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
       consumersRef.current.set(data.consumerId, consumer);
 
+      // Listen for score events to track connection quality
+      consumer.on('score', (score) => {
+        const participantId = data.appData?.participantId || '';
+        if (!participantId) return;
+
+        // mediasoup-client consumer score is { score, producerScore, producerScores }
+        const consumerScore =
+          typeof score === 'object' && score !== null && 'score' in score
+            ? (score as { score: number }).score
+            : typeof score === 'number'
+              ? score
+              : 0;
+        const quality = mapScoreToQuality(consumerScore);
+
+        setConnectionQuality((prev) => {
+          const next = new Map(prev);
+          next.set(participantId, quality);
+          return next;
+        });
+
+        updateParticipant(participantId, { connectionQuality: quality });
+      });
+
       // Resume consumer
       signaling.send({
         event: 'resume-consumer',
@@ -689,6 +726,59 @@ export function useWebRTC(options: UseWebRTCOptions) {
     console.log('Producer state change:', message.event, producerId);
   }
 
+  // Poll recv transport stats every 5 seconds when joined
+  useEffect(() => {
+    if (!isJoined) return;
+
+    const interval = setInterval(async () => {
+      const transport = recvTransportRef.current;
+      if (!transport) return;
+
+      try {
+        const stats = await transport.getStats();
+
+        stats.forEach((report) => {
+          if (report.type === 'inbound-rtp') {
+            const { roundTripTime, jitter, packetsLost, bytesReceived, packetsReceived } =
+              report as RTCInboundRtpStreamStats & { roundTripTime?: number };
+
+            if (
+              packetsLost !== undefined &&
+              packetsReceived !== undefined &&
+              packetsReceived > 0
+            ) {
+              const lossPercent = (packetsLost / (packetsReceived + packetsLost)) * 100;
+              if (lossPercent > 2) {
+                console.warn(
+                  `[WebRTC Stats] High packet loss: ${lossPercent.toFixed(1)}% (lost=${packetsLost}, received=${packetsReceived})`
+                );
+              }
+            }
+
+            if (jitter !== undefined && jitter > 0.03) {
+              console.warn(
+                `[WebRTC Stats] High jitter: ${(jitter * 1000).toFixed(1)}ms`
+              );
+            }
+
+            if (roundTripTime !== undefined || bytesReceived !== undefined) {
+              console.debug('[WebRTC Stats]', {
+                roundTripTime,
+                jitter,
+                packetsLost,
+                bytesReceived,
+              });
+            }
+          }
+        });
+      } catch (err) {
+        console.debug('Failed to get transport stats:', err);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isJoined]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -705,6 +795,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
     localStream,
     screenStream,
     consumers,
+    connectionQuality,
     error,
 
     // Actions

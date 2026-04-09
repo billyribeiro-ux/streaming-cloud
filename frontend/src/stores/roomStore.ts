@@ -19,7 +19,7 @@ export interface Participant {
   isVideoEnabled: boolean;
   isAudioEnabled: boolean;
   isScreenSharing: boolean;
-  connectionQuality: 'good' | 'medium' | 'poor' | 'unknown';
+  connectionQuality: 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
   joinedAt: Date;
   producers: ProducerInfo[];
 }

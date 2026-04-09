@@ -16,6 +16,7 @@ export type ClientEventType =
   | 'resume-producer'
   | 'close-producer'
   | 'set-preferred-layers'
+  | 'set-max-bitrate'
   | 'get-router-rtp-capabilities'
   | 'restart-ice';
 

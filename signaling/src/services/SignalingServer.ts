@@ -256,6 +256,10 @@ export class SignalingServer {
         await this.handleSetPreferredLayers(client, message.data);
         break;
 
+      case 'set-max-bitrate':
+        await this.handleSetMaxBitrate(client, message.data);
+        break;
+
       case 'get-router-rtp-capabilities':
         await this.handleGetRouterRtpCapabilities(client, message.data);
         break;
@@ -658,6 +662,27 @@ export class SignalingServer {
       );
     } catch (error) {
       logger.error({ error }, 'Failed to set preferred layers');
+    }
+  }
+
+  private async handleSetMaxBitrate(
+    client: ConnectedClient,
+    data: { transportId: string; bitrate: number }
+  ): Promise<void> {
+    if (!client.roomId) {
+      this.sendError(client, 'Not in a room', 'NOT_IN_ROOM');
+      return;
+    }
+
+    try {
+      await this.roomManager.setMaxIncomingBitrate(
+        client.roomId,
+        data.transportId,
+        data.bitrate
+      );
+    } catch (error) {
+      logger.error({ error }, 'Failed to set max bitrate');
+      this.sendError(client, 'Failed to set max bitrate', 'BITRATE_ERROR');
     }
   }
 

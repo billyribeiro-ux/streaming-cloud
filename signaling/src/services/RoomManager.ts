@@ -405,6 +405,22 @@ export class RoomManager {
     return result.iceParameters;
   }
 
+  async setMaxIncomingBitrate(
+    roomId: string,
+    transportId: string,
+    bitrate: number
+  ): Promise<void> {
+    const room = this.getRoomOrThrow(roomId);
+    await sfuFetch(
+      room.sfuHttpOrigin,
+      `/api/routers/${encodeURIComponent(room.routerId)}/transports/${encodeURIComponent(transportId)}/max-bitrate`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ bitrate }),
+      }
+    );
+  }
+
   async getRouterRtpCapabilities(roomId: string): Promise<unknown> {
     const room = this.rooms.get(roomId);
     return room?.routerRtpCapabilities || {};

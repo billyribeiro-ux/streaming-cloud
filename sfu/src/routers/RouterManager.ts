@@ -357,11 +357,15 @@ export class RouterManager {
       return null;
     }
 
+    // Audio gets higher priority than video to ensure voice never degrades
+    const priority = producer.kind === 'audio' ? 2 : 1;
+
     const consumer = await transport.consume({
       producerId,
       rtpCapabilities,
       paused: true, // Start paused, client will resume
       appData: producer.appData,
+      priority,
     });
 
     consumer.on('transportclose', () => {
@@ -533,6 +537,31 @@ export class RouterManager {
     this.routers.delete(routerId);
 
     logger.info({ routerId, roomId: roomRouter.roomId }, 'Router closed');
+  }
+
+  /**
+   * Set max incoming bitrate on a transport to cap per-transport bandwidth
+   */
+  async setMaxIncomingBitrate(
+    routerId: string,
+    transportId: string,
+    bitrate: number
+  ): Promise<void> {
+    const roomRouter = this.routers.get(routerId);
+    if (!roomRouter) {
+      throw new Error(`Router not found: ${routerId}`);
+    }
+
+    const transport = roomRouter.transports.get(transportId);
+    if (!transport) {
+      throw new Error(`Transport not found: ${transportId}`);
+    }
+
+    await transport.setMaxIncomingBitrate(bitrate);
+    logger.info(
+      { routerId, transportId, bitrate },
+      'Max incoming bitrate set on transport'
+    );
   }
 
   getRouterCount(): number {

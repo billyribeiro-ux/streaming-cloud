@@ -258,6 +258,23 @@ export function apiRouter(routerManager: RouterManager): Router {
     }
   );
 
+  r.post(
+    '/routers/:routerId/transports/:transportId/max-bitrate',
+    async (req: Request, res: Response) => {
+      try {
+        const routerId = pathParam(req, 'routerId');
+        const transportId = pathParam(req, 'transportId');
+        const { bitrate } = req.body as { bitrate: number };
+        await routerManager.setMaxIncomingBitrate(routerId, transportId, bitrate);
+        res.status(204).send();
+      } catch (e) {
+        res.status(500).json({
+          error: e instanceof Error ? e.message : 'setMaxIncomingBitrate failed',
+        });
+      }
+    }
+  );
+
   r.get('/stats', (_req: Request, res: Response) => {
     res.json({ routers: routerManager.getRouterCount() });
   });
