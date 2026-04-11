@@ -32,6 +32,7 @@ async function main(): Promise<void> {
   app.use(helmet());
   app.use(cors({ origin: config.cors.origins }));
   app.use(express.json());
+  app.use(express.text({ type: 'application/sdp' })); // WHIP SDP bodies
 
   // Initialize Redis for cluster coordination
   const redisService = new RedisService(config.redis);

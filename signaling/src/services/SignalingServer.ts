@@ -47,8 +47,8 @@ export class SignalingServer {
   start(): void {
     this.wss.on('connection', this.handleConnection.bind(this));
 
-    // Start ping interval for connection health
-    this.pingInterval = setInterval(() => this.pingClients(), 30000);
+    // Start ping interval for connection health (10s for fast dead-client detection)
+    this.pingInterval = setInterval(() => this.pingClients(), 10000);
 
     logger.info('Signaling server started');
   }
@@ -256,8 +256,24 @@ export class SignalingServer {
         await this.handleSetPreferredLayers(client, message.data);
         break;
 
+      case 'set-max-bitrate':
+        await this.handleSetMaxBitrate(client, message.data);
+        break;
+
       case 'get-router-rtp-capabilities':
         await this.handleGetRouterRtpCapabilities(client, message.data);
+        break;
+
+      case 'restart-ice':
+        await this.handleRestartIce(client, message.data);
+        break;
+
+      case 'produce-data':
+        await this.handleProduceData(client, message.data);
+        break;
+
+      case 'consume-data':
+        await this.handleConsumeData(client, message.data);
         break;
 
       default:
@@ -318,6 +334,37 @@ export class SignalingServer {
     }
 
     try {
+      // Detect reconnecting participant: same userId already present in this room
+      const existingParticipant = this.roomManager.findParticipantByUserId(
+        data.roomId,
+        client.user.id
+      );
+      const isReconnect = !!existingParticipant;
+
+      if (isReconnect && existingParticipant) {
+        logger.info(
+          { roomId: data.roomId, userId: client.user.id, oldParticipantId: existingParticipant.id },
+          'Reconnecting participant detected - cleaning up old entry'
+        );
+
+        // Disconnect the old WebSocket client for this participant (if still lingering)
+        for (const oldClient of this.clients.values()) {
+          if (
+            oldClient.participantId === existingParticipant.id &&
+            oldClient.id !== client.id
+          ) {
+            oldClient.roomId = null;
+            oldClient.participantId = null;
+            oldClient.transportIds.clear();
+            oldClient.producerIds.clear();
+            oldClient.consumerIds.clear();
+          }
+        }
+
+        // Remove the stale participant entry (fresh transports will be created by client)
+        this.roomManager.removeParticipantEntry(data.roomId, existingParticipant.id);
+      }
+
       // Join the room through room manager
       const roomInfo = await this.roomManager.joinRoom(
         data.roomId,
@@ -338,7 +385,7 @@ export class SignalingServer {
         );
       }
 
-      // Get existing participants and their producers
+      // Get existing participants and their producers (full snapshot for reconnecting clients)
       const participants = await this.roomManager.getParticipants(data.roomId);
 
       this.send(client, {
@@ -349,6 +396,7 @@ export class SignalingServer {
           routerRtpCapabilities: roomInfo.routerRtpCapabilities,
           participants: participants.filter((p) => p.id !== roomInfo.participantId),
           sfuNode: roomInfo.sfuNode,
+          isReconnect,
         },
       });
 
@@ -360,11 +408,12 @@ export class SignalingServer {
           userId: client.user.id,
           displayName: data.displayName,
           role: data.role,
+          isReconnect,
         },
       });
 
       logger.info(
-        { clientId: client.id, roomId: data.roomId, role: data.role },
+        { clientId: client.id, roomId: data.roomId, role: data.role, isReconnect },
         'Client joined room'
       );
     } catch (error) {
@@ -657,6 +706,128 @@ export class SignalingServer {
     }
   }
 
+  private async handleSetMaxBitrate(
+    client: ConnectedClient,
+    data: { transportId: string; bitrate: number }
+  ): Promise<void> {
+    if (!client.roomId) {
+      this.sendError(client, 'Not in a room', 'NOT_IN_ROOM');
+      return;
+    }
+
+    try {
+      await this.roomManager.setMaxIncomingBitrate(
+        client.roomId,
+        data.transportId,
+        data.bitrate
+      );
+    } catch (error) {
+      logger.error({ error }, 'Failed to set max bitrate');
+      this.sendError(client, 'Failed to set max bitrate', 'BITRATE_ERROR');
+    }
+  }
+
+  private async handleProduceData(
+    client: ConnectedClient,
+    data: {
+      transportId: string;
+      sctpStreamParameters: any;
+      label: string;
+      protocol: string;
+      appData?: any;
+    }
+  ): Promise<void> {
+    if (!client.roomId || !client.participantId) {
+      this.sendError(client, 'Not in a room', 'NOT_IN_ROOM');
+      return;
+    }
+
+    try {
+      const mergedAppData =
+        data.appData && typeof data.appData === 'object'
+          ? { ...data.appData, participantId: client.participantId }
+          : { participantId: client.participantId };
+
+      const dataProducer = await this.roomManager.produceData(
+        client.roomId,
+        client.participantId,
+        data.transportId,
+        data.sctpStreamParameters,
+        data.label,
+        data.protocol,
+        mergedAppData
+      );
+
+      this.send(client, {
+        event: 'data-produced',
+        data: { dataProducerId: dataProducer.id },
+      });
+
+      // Notify other participants about the new data producer
+      await this.broadcastToRoom(client.roomId, client.id, {
+        event: 'new-data-producer',
+        data: {
+          dataProducerId: dataProducer.id,
+          participantId: client.participantId,
+          label: data.label,
+          protocol: data.protocol,
+          appData: mergedAppData,
+        },
+      });
+
+      logger.info(
+        { clientId: client.id, dataProducerId: dataProducer.id, label: data.label },
+        'DataProducer created'
+      );
+    } catch (error) {
+      logger.error({ error, clientId: client.id }, 'Failed to produce data');
+      this.sendError(client, 'Failed to produce data', 'PRODUCE_DATA_ERROR');
+    }
+  }
+
+  private async handleConsumeData(
+    client: ConnectedClient,
+    data: { dataProducerId: string }
+  ): Promise<void> {
+    if (!client.roomId || !client.participantId) {
+      this.sendError(client, 'Not in a room', 'NOT_IN_ROOM');
+      return;
+    }
+
+    try {
+      const dataConsumer = await this.roomManager.consumeData(
+        client.roomId,
+        client.participantId,
+        data.dataProducerId
+      );
+
+      if (!dataConsumer) {
+        this.sendError(client, 'Cannot consume this data producer', 'CONSUME_DATA_ERROR');
+        return;
+      }
+
+      this.send(client, {
+        event: 'data-consumer-created',
+        data: {
+          dataConsumerId: dataConsumer.id,
+          dataProducerId: data.dataProducerId,
+          sctpStreamParameters: dataConsumer.sctpStreamParameters,
+          label: dataConsumer.label,
+          protocol: dataConsumer.protocol,
+          appData: dataConsumer.appData,
+        },
+      });
+
+      logger.debug(
+        { clientId: client.id, dataConsumerId: dataConsumer.id },
+        'DataConsumer created'
+      );
+    } catch (error) {
+      logger.error({ error, clientId: client.id }, 'Failed to consume data');
+      this.sendError(client, 'Failed to consume data', 'CONSUME_DATA_ERROR');
+    }
+  }
+
   private async handleGetRouterRtpCapabilities(
     client: ConnectedClient,
     data: { roomId: string }
@@ -673,6 +844,73 @@ export class SignalingServer {
     } catch (error) {
       logger.error({ error }, 'Failed to get router RTP capabilities');
       this.sendError(client, 'Failed to get capabilities', 'ERROR');
+    }
+  }
+
+  private async handleRestartIce(
+    client: ConnectedClient,
+    data: { transportId: string }
+  ): Promise<void> {
+    if (!client.roomId) {
+      this.sendError(client, 'Not in a room', 'NOT_IN_ROOM');
+      return;
+    }
+
+    try {
+      const iceParameters = await this.roomManager.restartIce(
+        client.roomId,
+        data.transportId
+      );
+
+      this.send(client, {
+        event: 'ice-restarted',
+        data: { transportId: data.transportId, iceParameters },
+      });
+
+      logger.info(
+        { clientId: client.id, transportId: data.transportId },
+        'ICE restarted'
+      );
+    } catch (error) {
+      logger.error({ error, clientId: client.id }, 'Failed to restart ICE');
+      this.sendError(client, 'Failed to restart ICE', 'ICE_RESTART_ERROR');
+    }
+  }
+
+  /**
+   * Broadcast active speaker to all participants in a room.
+   * Called by the SFU AudioLevelObserver via the control API.
+   */
+  broadcastActiveSpeaker(roomId: string, participantId: string, volume: number): void {
+    for (const client of this.clients.values()) {
+      if (client.roomId === roomId) {
+        this.send(client, {
+          event: 'active-speaker',
+          data: { participantId, volume },
+        });
+      }
+    }
+  }
+
+  /**
+   * Forward producer/consumer score to the relevant client.
+   * Enables connection quality monitoring on the frontend.
+   */
+  forwardScore(
+    roomId: string,
+    participantId: string,
+    type: 'producer' | 'consumer',
+    id: string,
+    score: unknown
+  ): void {
+    for (const client of this.clients.values()) {
+      if (client.roomId === roomId && client.participantId === participantId) {
+        this.send(client, {
+          event: 'score',
+          data: { type, id, score },
+        });
+        break;
+      }
     }
   }
 
@@ -764,7 +1002,7 @@ export class SignalingServer {
 
   private pingClients(): void {
     const now = Date.now();
-    const timeout = 60000; // 60 seconds
+    const timeout = 20000; // 20 seconds (2 missed pings at 10s interval)
 
     for (const [clientId, client] of this.clients.entries()) {
       if (now - client.lastPing > timeout) {

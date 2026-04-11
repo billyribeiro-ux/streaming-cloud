@@ -23,6 +23,14 @@ interface RoomRouter {
   createdAt: Date;
 }
 
+export interface WhipSessionInfo {
+  transportId: string;
+  iceParameters: MediasoupTypes.IceParameters;
+  iceCandidates: MediasoupTypes.IceCandidate[];
+  dtlsParameters: MediasoupTypes.DtlsParameters;
+  producerIds: string[];
+}
+
 interface TransportInfo {
   id: string;
   iceParameters: MediasoupTypes.IceParameters;
@@ -469,6 +477,131 @@ export class RouterManager {
       rtpParameters: p.rtpParameters,
       appData: p.appData,
     }));
+  }
+
+  // ----------------------------------------------------------------
+  // WHIP (WebRTC-HTTP Ingestion Protocol) session management
+  // ----------------------------------------------------------------
+
+  /**
+   * Create a WHIP ingress session.
+   *
+   * Creates a server-side WebRtcTransport that an external encoder will
+   * connect to.  The caller is responsible for generating the SDP answer
+   * from the returned transport parameters.
+   *
+   * @param routerId  The mediasoup router that owns the room.
+   * @param sdpOffer  The raw SDP offer string from the WHIP client (used
+   *                  to determine the number and kind of m-lines).
+   * @returns Transport info needed to build an SDP answer.
+   */
+  async createWhipSession(
+    routerId: string,
+    sdpOffer: string
+  ): Promise<WhipSessionInfo> {
+    const roomRouter = this.routers.get(routerId);
+    if (!roomRouter) {
+      throw new Error(`Router not found: ${routerId}`);
+    }
+
+    // Create a WebRtcTransport for the WHIP client
+    const transport = await roomRouter.router.createWebRtcTransport({
+      ...webRtcTransportOptions,
+      enableUdp: true,
+      enableTcp: true,
+      preferUdp: true,
+      appData: { whip: true },
+    });
+
+    transport.on('dtlsstatechange', (dtlsState) => {
+      if (dtlsState === 'failed' || dtlsState === 'closed') {
+        logger.warn(
+          { transportId: transport.id, dtlsState },
+          'WHIP transport DTLS state changed'
+        );
+      }
+    });
+
+    roomRouter.transports.set(transport.id, transport);
+
+    // Parse the SDP offer to determine media sections
+    const mediaKinds = this.parseMediaSectionsFromSdp(sdpOffer);
+    const producerIds: string[] = [];
+
+    logger.info(
+      {
+        routerId,
+        transportId: transport.id,
+        mediaSections: mediaKinds,
+      },
+      'WHIP session created'
+    );
+
+    return {
+      transportId: transport.id,
+      iceParameters: transport.iceParameters,
+      iceCandidates: transport.iceCandidates,
+      dtlsParameters: transport.dtlsParameters,
+      producerIds,
+    };
+  }
+
+  /**
+   * Delete (tear down) a WHIP session by closing its transport
+   * and all associated producers.
+   */
+  async deleteWhipSession(
+    routerId: string,
+    transportId: string
+  ): Promise<void> {
+    const roomRouter = this.routers.get(routerId);
+    if (!roomRouter) {
+      throw new Error(`Router not found: ${routerId}`);
+    }
+
+    const transport = roomRouter.transports.get(transportId);
+    if (!transport) {
+      throw new Error(`Transport not found: ${transportId}`);
+    }
+
+    // Close all producers on this transport
+    for (const [producerId, producer] of roomRouter.producers) {
+      if ((producer.appData as any)?.transportId === transportId) {
+        producer.close();
+        roomRouter.producers.delete(producerId);
+      }
+    }
+
+    transport.close();
+    roomRouter.transports.delete(transportId);
+
+    logger.info({ routerId, transportId }, 'WHIP session deleted');
+  }
+
+  /**
+   * Minimal SDP parser: extracts media kinds (audio / video) from
+   * m= lines in the offered SDP.
+   */
+  private parseMediaSectionsFromSdp(
+    sdp: string
+  ): { kind: MediasoupTypes.MediaKind; mid: string }[] {
+    const lines = sdp.split(/\r?\n/);
+    const sections: { kind: MediasoupTypes.MediaKind; mid: string }[] = [];
+    let currentKind: MediasoupTypes.MediaKind | null = null;
+
+    for (const line of lines) {
+      if (line.startsWith('m=audio')) {
+        currentKind = 'audio';
+      } else if (line.startsWith('m=video')) {
+        currentKind = 'video';
+      } else if (line.startsWith('a=mid:') && currentKind) {
+        const mid = line.slice('a=mid:'.length).trim();
+        sections.push({ kind: currentKind, mid });
+        currentKind = null;
+      }
+    }
+
+    return sections;
   }
 
   async shutdown(): Promise<void> {

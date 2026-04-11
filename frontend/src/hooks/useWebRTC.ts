@@ -14,6 +14,8 @@ import type {
   Transport,
   Producer,
   Consumer,
+  DataProducer,
+  DataConsumer,
   RtpCapabilities,
   DtlsParameters,
   RtpParameters,
@@ -71,14 +73,170 @@ interface UseWebRTCOptions {
   token: string;
   roomId: string;
   organizationId: string;
+  /** Enable end-to-end encryption via Encoded Transform API. Default: false */
+  enableE2EE?: boolean;
 }
 
+// ----------------------------------------------------------------
+// E2EE: Encoded Transform helpers (RTCRtpScriptTransform / legacy)
+// ----------------------------------------------------------------
+
+/** 12-byte random IV prefix; the remaining 4 bytes are a frame counter. */
+const E2EE_IV_LENGTH = 12;
+
+/**
+ * Encrypt an outgoing encoded frame using AES-GCM.
+ * The IV is prepended to the cipher-text so the receiver can extract it.
+ */
+function setupSenderTransform(
+  sender: RTCRtpSender,
+  key: CryptoKey
+): void {
+  // Encoded Transform API (Chrome 110+, Safari 15.4+)
+  const readable = (sender as any).createEncodedStreams?.()?.readable
+    ?? (sender as any).transform?.readable;
+  const writable = (sender as any).createEncodedStreams?.()?.writable
+    ?? (sender as any).transform?.writable;
+
+  // Prefer the modern RTCRtpSender.transform setter when available
+  if ('transform' in sender) {
+    let frameCounter = 0;
+    const transform = new TransformStream({
+      async transform(frame: any, controller: TransformStreamDefaultController) {
+        const data = new Uint8Array(frame.data);
+        const iv = new Uint8Array(E2EE_IV_LENGTH);
+        crypto.getRandomValues(iv);
+        // Embed a monotonic counter in the last 4 bytes for ordering
+        const view = new DataView(iv.buffer);
+        view.setUint32(iv.byteLength - 4, frameCounter++);
+
+        const ciphertext = await crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv },
+          key,
+          data
+        );
+
+        const output = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+        output.set(iv, 0);
+        output.set(new Uint8Array(ciphertext), iv.byteLength);
+
+        frame.data = output.buffer;
+        controller.enqueue(frame);
+      },
+    });
+
+    (sender as any).transform = transform;
+    return;
+  }
+
+  // Legacy Insertable Streams fallback
+  if (readable && writable) {
+    let frameCounter = 0;
+    const ts = new TransformStream({
+      async transform(frame: any, controller: TransformStreamDefaultController) {
+        const data = new Uint8Array(frame.data);
+        const iv = new Uint8Array(E2EE_IV_LENGTH);
+        crypto.getRandomValues(iv);
+        const view = new DataView(iv.buffer);
+        view.setUint32(iv.byteLength - 4, frameCounter++);
+
+        const ciphertext = await crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv },
+          key,
+          data
+        );
+
+        const output = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+        output.set(iv, 0);
+        output.set(new Uint8Array(ciphertext), iv.byteLength);
+
+        frame.data = output.buffer;
+        controller.enqueue(frame);
+      },
+    });
+
+    readable.pipeThrough(ts).pipeTo(writable);
+  }
+}
+
+/**
+ * Decrypt an incoming encoded frame using AES-GCM.
+ */
+function setupReceiverTransform(
+  receiver: RTCRtpReceiver,
+  key: CryptoKey
+): void {
+  if ('transform' in receiver) {
+    const transform = new TransformStream({
+      async transform(frame: any, controller: TransformStreamDefaultController) {
+        const data = new Uint8Array(frame.data);
+        if (data.byteLength <= E2EE_IV_LENGTH) {
+          // Frame too small to contain IV + ciphertext; drop it
+          return;
+        }
+        const iv = data.slice(0, E2EE_IV_LENGTH);
+        const ciphertext = data.slice(E2EE_IV_LENGTH);
+
+        try {
+          const plaintext = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            ciphertext
+          );
+          frame.data = plaintext;
+          controller.enqueue(frame);
+        } catch {
+          // Decryption failure (wrong key, corrupted frame) - drop silently
+          console.warn('[E2EE] Frame decryption failed, dropping frame');
+        }
+      },
+    });
+
+    (receiver as any).transform = transform;
+    return;
+  }
+
+  // Legacy Insertable Streams fallback
+  const readable = (receiver as any).createEncodedStreams?.()?.readable
+    ?? (receiver as any).transform?.readable;
+  const writable = (receiver as any).createEncodedStreams?.()?.writable
+    ?? (receiver as any).transform?.writable;
+
+  if (readable && writable) {
+    const ts = new TransformStream({
+      async transform(frame: any, controller: TransformStreamDefaultController) {
+        const data = new Uint8Array(frame.data);
+        if (data.byteLength <= E2EE_IV_LENGTH) return;
+        const iv = data.slice(0, E2EE_IV_LENGTH);
+        const ciphertext = data.slice(E2EE_IV_LENGTH);
+
+        try {
+          const plaintext = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            ciphertext
+          );
+          frame.data = plaintext;
+          controller.enqueue(frame);
+        } catch {
+          console.warn('[E2EE] Frame decryption failed, dropping frame');
+        }
+      },
+    });
+
+    readable.pipeThrough(ts).pipeTo(writable);
+  }
+}
+
+// ----------------------------------------------------------------
+
 export function useWebRTC(options: UseWebRTCOptions) {
-  const { signalingUrl, token, roomId, organizationId } = options;
+  const { signalingUrl, token, roomId, organizationId, enableE2EE = false } = options;
 
   // State
   const [isConnected, setIsConnected] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
+  const [isE2EEEnabled, setIsE2EEEnabled] = useState(false);
   const [mediaState, setMediaState] = useState<MediaState>({
     video: false,
     audio: false,
@@ -95,6 +253,11 @@ export function useWebRTC(options: UseWebRTCOptions) {
   const recvTransportRef = useRef<Transport | null>(null);
   const producersRef = useRef<Map<string, Producer>>(new Map());
   const consumersRef = useRef<Map<string, Consumer>>(new Map());
+
+  // E2EE refs
+  const e2eeLocalKeyRef = useRef<CryptoKey | null>(null);
+  const e2eeRemoteKeysRef = useRef<Map<string, CryptoKey>>(new Map());
+  const e2eeDataProducerRef = useRef<DataProducer | null>(null);
 
   // Store
   const { setParticipants, addParticipant, removeParticipant } = useRoomStore();
@@ -156,9 +319,52 @@ export function useWebRTC(options: UseWebRTCOptions) {
         handleProducerStateChange(message);
         break;
 
+      case 'data-consumer-created':
+        handleDataConsumerCreated(message.data);
+        break;
+
       case 'error':
         setError(message.data.message);
         break;
+    }
+  }
+
+  /**
+   * Handle incoming DataConsumer creation (for E2EE key exchange).
+   */
+  async function handleDataConsumerCreated(data: {
+    dataConsumerId: string;
+    dataProducerId: string;
+    label: string;
+    protocol: string;
+    sctpStreamParameters: any;
+    appData: any;
+  }) {
+    const transport = recvTransportRef.current;
+    if (!transport) return;
+
+    try {
+      const dataConsumer = await transport.consumeData({
+        id: data.dataConsumerId,
+        dataProducerId: data.dataProducerId,
+        label: data.label,
+        protocol: data.protocol,
+        sctpStreamParameters: data.sctpStreamParameters,
+        appData: data.appData,
+      });
+
+      if (data.label === 'e2ee-key') {
+        dataConsumer.on('message', (message: any) => {
+          const rawKey = message instanceof ArrayBuffer
+            ? message
+            : (message as Uint8Array).buffer;
+          const participantId = data.appData?.participantId || data.dataProducerId;
+          handleE2EEKeyReceived(participantId, rawKey);
+        });
+        console.log('[E2EE] DataConsumer created for key exchange');
+      }
+    } catch (err) {
+      console.error('Failed to consume data:', err);
     }
   }
 
@@ -172,6 +378,74 @@ export function useWebRTC(options: UseWebRTCOptions) {
     },
     []
   );
+
+  // ---- E2EE key generation and broadcast ----------------------------
+
+  /**
+   * Generate AES-GCM 256-bit key and broadcast it to peers via DataChannel.
+   * Called once after transports are ready when E2EE is enabled.
+   */
+  async function initializeE2EE(): Promise<void> {
+    const transport = sendTransportRef.current;
+    if (!transport) return;
+
+    // Generate a random 256-bit AES-GCM key
+    const key = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      true, // extractable so we can export & send to peers
+      ['encrypt', 'decrypt']
+    );
+
+    e2eeLocalKeyRef.current = key;
+    setIsE2EEEnabled(true);
+
+    // Export the raw key bytes for transmission
+    const rawKey = await crypto.subtle.exportKey('raw', key);
+
+    // Create a DataProducer to broadcast the key
+    try {
+      const dataProducer = await transport.produceData({
+        label: 'e2ee-key',
+        protocol: '',
+        ordered: true,
+        appData: { source: 'e2ee' },
+      });
+
+      e2eeDataProducerRef.current = dataProducer;
+
+      // Broadcast the key as raw bytes
+      dataProducer.send(new Uint8Array(rawKey));
+
+      console.log('[E2EE] Local encryption key generated and broadcast');
+    } catch (err) {
+      console.error('[E2EE] Failed to create DataProducer for key exchange:', err);
+    }
+  }
+
+  /**
+   * Handle incoming DataConsumer with label 'e2ee-key'.
+   * Imports the sender's key and stores it indexed by participant ID.
+   */
+  async function handleE2EEKeyReceived(
+    participantId: string,
+    rawKeyBytes: ArrayBuffer
+  ): Promise<void> {
+    try {
+      const key = await crypto.subtle.importKey(
+        'raw',
+        rawKeyBytes,
+        { name: 'AES-GCM', length: 256 },
+        false, // non-extractable on the receiving side
+        ['decrypt']
+      );
+      e2eeRemoteKeysRef.current.set(participantId, key);
+      console.log(`[E2EE] Stored key for participant ${participantId}`);
+    } catch (err) {
+      console.error('[E2EE] Failed to import remote key:', err);
+    }
+  }
+
+  // ---- End E2EE helpers --------------------------------------------
 
   // Handle room joined event
   async function handleRoomJoined(data: {
@@ -190,6 +464,12 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
       // Create transports
       await createTransports();
+
+      // Initialize E2EE after transports are ready (if enabled)
+      if (enableE2EE) {
+        // Small delay to ensure transports are fully set up
+        setTimeout(() => initializeE2EE(), 200);
+      }
 
       // Consume existing producers
       for (const participant of normalizedParticipants) {
@@ -297,6 +577,49 @@ export function useWebRTC(options: UseWebRTCOptions) {
         }
       }
       );
+
+      // Handle DataChannel produceData for E2EE key exchange
+      transport.on(
+        'producedata',
+        async (
+          {
+            sctpStreamParameters,
+            label,
+            protocol,
+            appData,
+          }: {
+            sctpStreamParameters: any;
+            label: string;
+            protocol: string;
+            appData: AppData;
+          },
+          callback: (result: { id: string }) => void,
+          errback: (error: Error) => void
+        ) => {
+        try {
+          signaling.send({
+            event: 'produce-data',
+            data: {
+              transportId: data.transportId,
+              sctpStreamParameters,
+              label,
+              protocol,
+              appData,
+            },
+          });
+
+          // Wait for data-produced event
+          const dataProducerId = await new Promise<string>((resolve) => {
+            signaling.once('data-produced', (msg: any) => {
+              resolve(msg.data.dataProducerId);
+            });
+          });
+          callback({ id: dataProducerId });
+        } catch (err) {
+          errback(err as Error);
+        }
+      }
+      );
     } else {
       transport = device.createRecvTransport(transportOptions);
       recvTransportRef.current = transport;
@@ -386,6 +709,15 @@ export function useWebRTC(options: UseWebRTCOptions) {
     consumersRef.current.clear();
     setConsumers(new Map());
 
+    // Close E2EE DataProducer
+    if (e2eeDataProducerRef.current) {
+      e2eeDataProducerRef.current.close();
+      e2eeDataProducerRef.current = null;
+    }
+    e2eeLocalKeyRef.current = null;
+    e2eeRemoteKeysRef.current.clear();
+    setIsE2EEEnabled(false);
+
     // Close transports
     sendTransportRef.current?.close();
     recvTransportRef.current?.close();
@@ -446,6 +778,15 @@ export function useWebRTC(options: UseWebRTCOptions) {
         });
 
         producersRef.current.set('video', producer);
+
+        // Apply E2EE sender transform
+        if (enableE2EE && e2eeLocalKeyRef.current) {
+          const rtpSender = (producer as any).rtpSender as RTCRtpSender | undefined;
+          if (rtpSender) {
+            setupSenderTransform(rtpSender, e2eeLocalKeyRef.current);
+          }
+        }
+
         setLocalStream((prev) => {
           const newStream = prev || new MediaStream();
           newStream.addTrack(track);
@@ -498,6 +839,15 @@ export function useWebRTC(options: UseWebRTCOptions) {
         });
 
         producersRef.current.set('audio', producer);
+
+        // Apply E2EE sender transform
+        if (enableE2EE && e2eeLocalKeyRef.current) {
+          const rtpSender = (producer as any).rtpSender as RTCRtpSender | undefined;
+          if (rtpSender) {
+            setupSenderTransform(rtpSender, e2eeLocalKeyRef.current);
+          }
+        }
+
         setLocalStream((prev) => {
           const newStream = prev || new MediaStream();
           newStream.addTrack(track);
@@ -562,6 +912,15 @@ export function useWebRTC(options: UseWebRTCOptions) {
         });
 
         producersRef.current.set('screen', producer);
+
+        // Apply E2EE sender transform
+        if (enableE2EE && e2eeLocalKeyRef.current) {
+          const rtpSender = (producer as any).rtpSender as RTCRtpSender | undefined;
+          if (rtpSender) {
+            setupSenderTransform(rtpSender, e2eeLocalKeyRef.current);
+          }
+        }
+
         setScreenStream(stream);
         setMediaState((prev) => ({ ...prev, screen: true }));
       } catch (err) {
@@ -621,6 +980,18 @@ export function useWebRTC(options: UseWebRTCOptions) {
 
       consumersRef.current.set(data.consumerId, consumer);
 
+      // Apply E2EE receiver transform if enabled
+      if (enableE2EE) {
+        const participantId = data.appData?.participantId || '';
+        const remoteKey = e2eeRemoteKeysRef.current.get(participantId);
+        if (remoteKey) {
+          const rtpReceiver = (consumer as any).rtpReceiver as RTCRtpReceiver | undefined;
+          if (rtpReceiver) {
+            setupReceiverTransform(rtpReceiver, remoteKey);
+          }
+        }
+      }
+
       // Resume consumer
       signaling.send({
         event: 'resume-consumer',
@@ -663,6 +1034,7 @@ export function useWebRTC(options: UseWebRTCOptions) {
     // State
     isConnected,
     isJoined,
+    isE2EEEnabled,
     mediaState,
     localStream,
     screenStream,

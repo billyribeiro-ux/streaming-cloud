@@ -16,7 +16,8 @@ export type ClientEventType =
   | 'resume-producer'
   | 'close-producer'
   | 'set-preferred-layers'
-  | 'get-router-rtp-capabilities';
+  | 'get-router-rtp-capabilities'
+  | 'e2ee-key-rotation';
 
 // Server to Client Events
 export type ServerEventType =
@@ -35,6 +36,7 @@ export type ServerEventType =
   | 'producer-resumed'
   | 'producer-closed'
   | 'router-rtp-capabilities'
+  | 'e2ee-key-rotated'
   | 'error';
 
 export interface SignalingMessage {

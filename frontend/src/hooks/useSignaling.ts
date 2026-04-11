@@ -27,10 +27,10 @@ interface SignalingReturn {
   isConnected: boolean;
 }
 
-const MAX_RECONNECT_ATTEMPTS = 5;
-const BASE_RECONNECT_DELAY = 1000;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_RECONNECT_DELAY = 500;
 const MAX_RECONNECT_DELAY = 16000;
-const HEARTBEAT_INTERVAL = 30000;
+const HEARTBEAT_INTERVAL = 10000;
 
 export function useSignaling(options: SignalingOptions): SignalingReturn {
   const { url, onOpen, onClose, onError, onMessage } = options;
