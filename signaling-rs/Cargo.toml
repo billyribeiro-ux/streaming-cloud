@@ -30,3 +30,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenvy = "0.15"
 dashmap = "6"
 chrono = { version = "0.4", features = ["serde"] }
+urlencoding = "2"

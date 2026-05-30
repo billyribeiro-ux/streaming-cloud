@@ -237,11 +237,71 @@ jobs:
           VITE_SIGNALING_URL: wss://signaling.example.com
 
   # ===========================================================================
+  # Rust Signaling Server Tests
+  # ===========================================================================
+  signaling-rs-test:
+    name: Rust Signaling Server Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signaling-rs
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: signaling-rs
+
+      - name: Run cargo check
+        run: cargo check
+
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run cargo fmt --check
+        run: cargo fmt --check
+
+  # ===========================================================================
+  # Recorder Tests
+  # ===========================================================================
+  recorder-test:
+    name: Recorder Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: recorder
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: recorder/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript check
+        run: npx tsc --noEmit
+
+  # ===========================================================================
   # Build & Push Docker Images
   # ===========================================================================
   build:
     name: Build Docker Images
-    needs: [backend-test, signaling-test, sfu-test, frontend-test]
+    needs: [backend-test, signaling-test, sfu-test, frontend-test, signaling-rs-test, recorder-test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
@@ -369,7 +429,7 @@ jobs:
   # ===========================================================================
   deploy-production:
     name: Deploy to Production
-    needs: build
+    needs: [build, security-scan]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     environment:
