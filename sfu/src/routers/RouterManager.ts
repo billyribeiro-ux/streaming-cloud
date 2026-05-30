@@ -56,6 +56,7 @@ interface ConsumerInfo {
 
 export class RouterManager {
   private routers: Map<string, RoomRouter> = new Map();
+  private pendingRouters: Map<string, Promise<{ routerId: string; rtpCapabilities: MediasoupTypes.RtpCapabilities }>> = new Map();
 
   constructor(
     private workerManager: WorkerManager,
@@ -86,6 +87,26 @@ export class RouterManager {
       };
     }
 
+    // If a creation is already in-flight for this roomId, await and return it
+    const pending = this.pendingRouters.get(roomId);
+    if (pending) {
+      return pending;
+    }
+
+    const promise = this.doCreateRouter(roomId);
+    this.pendingRouters.set(roomId, promise);
+
+    try {
+      return await promise;
+    } finally {
+      this.pendingRouters.delete(roomId);
+    }
+  }
+
+  private async doCreateRouter(roomId: string): Promise<{
+    routerId: string;
+    rtpCapabilities: MediasoupTypes.RtpCapabilities;
+  }> {
     // Get least loaded worker
     const worker = this.workerManager.getLeastLoadedWorker();
 
@@ -164,6 +185,11 @@ export class RouterManager {
           'Transport DTLS state changed'
         );
       }
+      if (dtlsState === 'failed') {
+        logger.warn({ transportId: transport.id }, 'Closing transport due to DTLS failure');
+        transport.close();
+        roomRouter.transports.delete(transport.id);
+      }
     });
 
     transport.on('icestatechange', (iceState) => {
@@ -172,6 +198,11 @@ export class RouterManager {
           { transportId: transport.id, iceState },
           'Transport ICE state changed'
         );
+      }
+      if (iceState === 'closed') {
+        logger.warn({ transportId: transport.id }, 'Closing transport due to ICE closed');
+        transport.close();
+        roomRouter.transports.delete(transport.id);
       }
     });
 

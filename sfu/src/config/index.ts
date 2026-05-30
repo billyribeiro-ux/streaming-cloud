@@ -75,3 +75,14 @@ export const config: Config = {
     origins: parseArray(process.env.CORS_ORIGINS, ['http://localhost:5173']),
   },
 };
+
+// Refuse to start in production with default secrets
+if (
+  process.env.NODE_ENV === 'production' &&
+  config.controlPlaneSecret === 'dev-secret'
+) {
+  throw new Error(
+    'FATAL: controlPlaneSecret is still the default "dev-secret" in production. ' +
+    'Set SIGNALING_SERVER_SECRET or SFU_INTERNAL_SECRET environment variable.'
+  );
+}

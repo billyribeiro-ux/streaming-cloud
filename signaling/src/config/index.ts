@@ -85,3 +85,19 @@ export const config: Config = {
     process.env.SFU_SECRET ||
     'dev-secret',
 };
+
+// Refuse to start in production with default secrets
+if (config.nodeEnv === 'production') {
+  if (config.jwtSecret === 'dev-jwt-secret') {
+    throw new Error(
+      'FATAL: jwtSecret is still the default "dev-jwt-secret" in production. ' +
+      'Set JWT_SECRET environment variable.'
+    );
+  }
+  if (config.signalingControlSecret === 'dev-secret') {
+    throw new Error(
+      'FATAL: signalingControlSecret is still the default "dev-secret" in production. ' +
+      'Set SIGNALING_SERVER_SECRET or SFU_SECRET environment variable.'
+    );
+  }
+}

@@ -12,11 +12,54 @@ import cors from 'cors';
 import { RecordingPipeline, type RecordingInfo } from './services/RecordingPipeline.js';
 
 const PORT = parseInt(process.env.RECORDER_PORT || '5000', 10);
+const CONTROL_PLANE_SECRET = process.env.CONTROL_PLANE_SECRET || '';
 
 const app = express();
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+// ----------------------------------------------------------------
+// Bearer token authentication middleware
+// ----------------------------------------------------------------
+
+/**
+ * Verifies that the request carries a valid Bearer token matching
+ * CONTROL_PLANE_SECRET.  The /health endpoint is excluded so that
+ * orchestrators can probe without credentials.
+ */
+function requireAuth(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+): void {
+  // Allow health checks without auth
+  if (req.path === '/health') {
+    next();
+    return;
+  }
+
+  if (!CONTROL_PLANE_SECRET) {
+    res.status(500).json({ error: 'CONTROL_PLANE_SECRET is not configured' });
+    return;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing or malformed Authorization header' });
+    return;
+  }
+
+  const token = authHeader.slice(7);
+  if (token !== CONTROL_PLANE_SECRET) {
+    res.status(403).json({ error: 'Invalid bearer token' });
+    return;
+  }
+
+  next();
+}
+
+app.use(requireAuth);
 
 // ----------------------------------------------------------------
 // In-memory recording registry

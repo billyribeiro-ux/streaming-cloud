@@ -7,6 +7,13 @@ const CONTROL_SECRET =
   process.env.SFU_SECRET ||
   'dev-secret';
 
+if (process.env.NODE_ENV === 'production' && CONTROL_SECRET === 'dev-secret') {
+  throw new Error(
+    'FATAL: SFU CONTROL_SECRET is still the default "dev-secret" in production. ' +
+    'Set SIGNALING_SERVER_SECRET or SFU_SECRET environment variable.'
+  );
+}
+
 export async function sfuFetch<T>(
   sfuHttpOrigin: string,
   path: string,
@@ -20,7 +27,7 @@ export async function sfuFetch<T>(
     ...(init.headers as Record<string, string>),
   };
 
-  const res = await fetch(url, { ...init, headers });
+  const res = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(5000) });
   const text = await res.text();
   if (!res.ok) {
     throw new Error(

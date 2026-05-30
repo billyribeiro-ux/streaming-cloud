@@ -50,6 +50,37 @@ impl Config {
     }
 }
 
+const DEV_SECRETS: &[&str] = &["dev-jwt-secret", "dev-secret", ""];
+
+impl Config {
+    /// Panics if JWT_SECRET or CONTROL_PLANE_SECRET are still set to
+    /// insecure default values outside of development mode.
+    pub fn validate_secrets(&self) {
+        let env = std::env::var("APP_ENV")
+            .or_else(|_| std::env::var("NODE_ENV"))
+            .unwrap_or_else(|_| "development".into());
+
+        if env == "development" {
+            return;
+        }
+
+        if DEV_SECRETS.contains(&self.jwt_secret.as_str()) {
+            panic!(
+                "FATAL: JWT_SECRET is set to a default dev value in {env} mode. \
+                 Set a strong, unique JWT_SECRET for non-development environments."
+            );
+        }
+
+        if DEV_SECRETS.contains(&self.control_plane_secret.as_str()) {
+            panic!(
+                "FATAL: CONTROL_PLANE_SECRET (SIGNALING_SERVER_SECRET / SFU_SECRET) \
+                 is set to a default dev value in {env} mode. \
+                 Set a strong, unique secret for non-development environments."
+            );
+        }
+    }
+}
+
 fn parse_csv(s: &str) -> Vec<String> {
     s.split(',')
         .map(|v| v.trim().to_owned())

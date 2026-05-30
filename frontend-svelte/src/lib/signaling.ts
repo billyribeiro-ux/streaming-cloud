@@ -156,6 +156,7 @@ export class SignalingClient {
     this.isConnected = false;
     this.isReconnecting = false;
     this.reconnectAttempts = 0;
+    this.listeners.clear();
     this.onceListeners.clear();
   }
 

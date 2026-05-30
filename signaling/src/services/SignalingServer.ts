@@ -80,7 +80,7 @@ export class SignalingServer {
     for (const client of this.clients.values()) {
       if (client.roomId === roomId && client.user?.id === userId) {
         this.send(client, {
-          event: 'error',
+          event: 'mute-request',
           data: {
             message: `Moderator requested ${mediaType} mute`,
             code: 'MODERATOR_MUTE',
@@ -480,6 +480,11 @@ export class SignalingServer {
       return;
     }
 
+    if (!client.transportIds.has(data.transportId)) {
+      this.sendError(client, 'Transport not owned by this client', 'FORBIDDEN');
+      return;
+    }
+
     try {
       await this.roomManager.connectTransport(
         client.roomId,
@@ -569,6 +574,12 @@ export class SignalingServer {
       return;
     }
 
+    // Validate that the producer belongs to this room
+    if (!this.roomManager.findProducerKind(client.roomId, data.producerId)) {
+      this.sendError(client, 'Producer not found in this room', 'CONSUME_ERROR');
+      return;
+    }
+
     try {
       const consumer = await this.roomManager.consume(
         client.roomId,
@@ -633,6 +644,11 @@ export class SignalingServer {
       return;
     }
 
+    if (!client.producerIds.has(data.producerId)) {
+      this.sendError(client, 'Producer not owned by this client', 'FORBIDDEN');
+      return;
+    }
+
     try {
       await this.roomManager.pauseProducer(client.roomId, data.producerId);
 
@@ -653,6 +669,11 @@ export class SignalingServer {
       return;
     }
 
+    if (!client.producerIds.has(data.producerId)) {
+      this.sendError(client, 'Producer not owned by this client', 'FORBIDDEN');
+      return;
+    }
+
     try {
       await this.roomManager.resumeProducer(client.roomId, data.producerId);
 
@@ -670,6 +691,11 @@ export class SignalingServer {
     data: { producerId: string }
   ): Promise<void> {
     if (!client.roomId) {
+      return;
+    }
+
+    if (!client.producerIds.has(data.producerId)) {
+      this.sendError(client, 'Producer not owned by this client', 'FORBIDDEN');
       return;
     }
 
@@ -971,6 +997,15 @@ export class SignalingServer {
         await this.roomManager.closeProducer(roomId, producerId);
       } catch (error) {
         logger.error({ error, producerId }, 'Error closing producer');
+      }
+    }
+
+    // Remove consumer entries from participant state
+    for (const consumerId of client.consumerIds) {
+      try {
+        this.roomManager.removeConsumer(roomId, participantId, consumerId);
+      } catch (error) {
+        logger.error({ error, consumerId }, 'Error removing consumer');
       }
     }
 
