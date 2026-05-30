@@ -92,12 +92,6 @@ function setupSenderTransform(
   sender: RTCRtpSender,
   key: CryptoKey
 ): void {
-  // Encoded Transform API (Chrome 110+, Safari 15.4+)
-  const readable = (sender as any).createEncodedStreams?.()?.readable
-    ?? (sender as any).transform?.readable;
-  const writable = (sender as any).createEncodedStreams?.()?.writable
-    ?? (sender as any).transform?.writable;
-
   // Prefer the modern RTCRtpSender.transform setter when available
   if ('transform' in sender) {
     let frameCounter = 0;
@@ -130,6 +124,10 @@ function setupSenderTransform(
   }
 
   // Legacy Insertable Streams fallback
+  const streams = (sender as any).createEncodedStreams?.();
+  const readable = streams?.readable;
+  const writable = streams?.writable;
+
   if (readable && writable) {
     let frameCounter = 0;
     const ts = new TransformStream({
@@ -197,10 +195,9 @@ function setupReceiverTransform(
   }
 
   // Legacy Insertable Streams fallback
-  const readable = (receiver as any).createEncodedStreams?.()?.readable
-    ?? (receiver as any).transform?.readable;
-  const writable = (receiver as any).createEncodedStreams?.()?.writable
-    ?? (receiver as any).transform?.writable;
+  const streams = (receiver as any).createEncodedStreams?.();
+  const readable = streams?.readable;
+  const writable = streams?.writable;
 
   if (readable && writable) {
     const ts = new TransformStream({

@@ -244,9 +244,7 @@ function createRoomStore() {
         producers: data.producers || [],
       };
 
-      const newMap = new SvelteMap(participants);
-      newMap.set(p.id, p);
-      participants = newMap;
+      participants.set(p.id, p);
 
       // System message
       messages = [
@@ -266,16 +264,12 @@ function createRoomStore() {
       const existing = participants.get(id);
       if (!existing) return;
 
-      const newMap = new SvelteMap(participants);
-      newMap.set(id, { ...existing, ...updates });
-      participants = newMap;
+      participants.set(id, { ...existing, ...updates });
     },
 
     removeParticipant(id: string) {
       const existing = participants.get(id);
-      const newMap = new SvelteMap(participants);
-      newMap.delete(id);
-      participants = newMap;
+      participants.delete(id);
 
       if (existing) {
         messages = [
@@ -302,19 +296,15 @@ function createRoomStore() {
 
     // Consumer actions
     addConsumer(entry: ConsumerEntry) {
-      const newMap = new SvelteMap(consumers);
-      newMap.set(entry.consumerId, entry);
-      consumers = newMap;
+      consumers.set(entry.consumerId, entry);
     },
 
     removeConsumer(consumerId: string) {
-      const newMap = new SvelteMap(consumers);
-      newMap.delete(consumerId);
-      consumers = newMap;
+      consumers.delete(consumerId);
     },
 
     clearConsumers() {
-      consumers = new SvelteMap();
+      consumers.clear();
     },
 
     // Chat actions

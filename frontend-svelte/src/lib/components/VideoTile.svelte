@@ -24,6 +24,7 @@
   function videoAction(node: HTMLVideoElement) {
     $effect(() => {
       node.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
+      return () => { node.srcObject = null; };
     });
   }
 
@@ -32,6 +33,7 @@
       if (!isLocal) {
         node.srcObject = audioTrack ? new MediaStream([audioTrack]) : null;
       }
+      return () => { node.srcObject = null; };
     });
   }
 
