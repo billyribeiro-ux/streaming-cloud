@@ -21,6 +21,8 @@ interface WorkerInfo {
 export class WorkerManager {
   private workers: WorkerInfo[] = [];
   private nextWorkerIndex = 0;
+  onWorkerDeath?: (deadWorker: MediasoupTypes.Worker) => void;
+  private monitoringInterval: NodeJS.Timeout | null = null;
 
   constructor(private config: MediasoupConfig) {}
 
@@ -58,7 +60,9 @@ export class WorkerManager {
       );
 
       // Remove dead worker and create new one
-      this.handleWorkerDeath(index);
+      this.handleWorkerDeath(index).catch((err) =>
+        logger.error({ error: err, index }, 'Failed to handle worker death')
+      );
     });
 
     logger.info({ pid: worker.pid, index }, 'Mediasoup worker created');
@@ -67,6 +71,17 @@ export class WorkerManager {
   }
 
   private async handleWorkerDeath(index: number): Promise<void> {
+    const deadWorker = this.workers[index]?.worker;
+
+    // Notify listener so stale routers can be cleaned up
+    if (deadWorker && this.onWorkerDeath) {
+      try {
+        this.onWorkerDeath(deadWorker);
+      } catch (err) {
+        logger.error({ error: err, index }, 'onWorkerDeath callback error');
+      }
+    }
+
     // Wait a bit before restarting
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
@@ -112,6 +127,10 @@ export class WorkerManager {
       }
     }
 
+    if (minLoad === Infinity) {
+      throw new Error('No available workers');
+    }
+
     return this.workers[selectedIndex].worker;
   }
 
@@ -119,9 +138,15 @@ export class WorkerManager {
    * Round-robin worker selection
    */
   getNextWorker(): MediasoupTypes.Worker {
-    const worker = this.workers[this.nextWorkerIndex];
-    this.nextWorkerIndex = (this.nextWorkerIndex + 1) % this.workers.length;
-    return worker.worker;
+    const totalWorkers = this.workers.length;
+    for (let i = 0; i < totalWorkers; i++) {
+      const worker = this.workers[this.nextWorkerIndex];
+      this.nextWorkerIndex = (this.nextWorkerIndex + 1) % totalWorkers;
+      if (!worker.worker.closed) {
+        return worker.worker;
+      }
+    }
+    throw new Error('No available workers');
   }
 
   /**
@@ -159,7 +184,7 @@ export class WorkerManager {
   }
 
   private startResourceMonitoring(): void {
-    setInterval(async () => {
+    this.monitoringInterval = setInterval(async () => {
       for (const workerInfo of this.workers) {
         if (!workerInfo.worker.closed) {
           try {
@@ -174,6 +199,11 @@ export class WorkerManager {
 
   async shutdown(): Promise<void> {
     logger.info('Shutting down workers...');
+
+    if (this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+      this.monitoringInterval = null;
+    }
 
     for (const workerInfo of this.workers) {
       if (!workerInfo.worker.closed) {

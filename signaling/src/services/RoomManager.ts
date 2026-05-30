@@ -414,6 +414,14 @@ export class RoomManager {
     return { id: p.id };
   }
 
+  removeConsumer(roomId: string, participantId: string, consumerId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    const participant = room.participants.get(participantId);
+    if (!participant) return;
+    participant.consumers.delete(consumerId);
+  }
+
   findProducerKind(roomId: string, producerId: string): 'audio' | 'video' | null {
     const room = this.rooms.get(roomId);
     if (!room) return null;

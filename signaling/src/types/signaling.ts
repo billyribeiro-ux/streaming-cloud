@@ -37,6 +37,7 @@ export type ServerEventType =
   | 'producer-closed'
   | 'router-rtp-capabilities'
   | 'e2ee-key-rotated'
+  | 'mute-request'
   | 'error';
 
 export interface SignalingMessage {
