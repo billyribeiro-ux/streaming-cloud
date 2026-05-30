@@ -10,7 +10,7 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │   ┌──────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────┐  │
-│   │  React   │────▶│  Signaling   │────▶│  Mediasoup  │────▶│  TURN    │  │
+│   │ Svelte   │────▶│  Signaling   │────▶│  Mediasoup  │────▶│  TURN    │  │
 │   │ Frontend │     │   Server     │     │  SFU Cluster│     │  Server  │  │
 │   └──────────┘     └──────────────┘     └─────────────┘     └──────────┘  │
 │        │                  │                    │                           │
@@ -22,7 +22,7 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 │        │                                                                   │
 │        ▼                                                                   │
 │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐             │
-│   │  Laravel 12  │────▶│    Redis     │────▶│ Cloudflare   │             │
+│   │  Laravel 13  │────▶│    Redis     │────▶│ Cloudflare   │             │
 │   │  SaaS API    │     │    Cache     │     │  R2 Storage  │             │
 │   └──────────────┘     └──────────────┘     └──────────────┘             │
 │                                                                             │
@@ -32,7 +32,7 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 ## Tech Stack
 
 ### Backend - Core SaaS
-- **Laravel 12** (PHP 8.3) - Core SaaS API
+- **Laravel 13** (PHP 8.4) - Core SaaS API
 - **Laravel Cashier** - Stripe Billing integration
 - **Laravel Sanctum** - API authentication
 - **Laravel Horizon** - Queue management
@@ -40,17 +40,17 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 - **Redis** - Caching and queues
 
 ### Realtime & Media
-- **Node.js 20+** with TypeScript
-- **Mediasoup v3** - SFU (Selective Forwarding Unit)
+- **Node.js 24+** with TypeScript
+- **Mediasoup v3.20** - SFU (Selective Forwarding Unit)
 - **WebRTC** - Real-time media streaming
 - **Coturn** - TURN/STUN server
 
 ### Frontend
-- **React 18** with TypeScript
-- **Vite** - Build tool
+- **Svelte 5.55** with TypeScript
+- **Vite 8** - Build tool
 - **TailwindCSS** - Styling
 - **Zustand** - State management
-- **mediasoup-client** - WebRTC client
+- **mediasoup-client v3** - WebRTC client
 
 ### Infrastructure
 - **Hetzner Cloud** - Primary hosting
@@ -63,7 +63,7 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 
 ```
 streaming-cloud/
-├── backend/                    # Laravel 12 SaaS API
+├── backend/                    # Laravel 13 SaaS API
 │   ├── app/
 │   │   ├── Http/Controllers/   # API Controllers
 │   │   ├── Models/             # Eloquent Models
@@ -94,7 +94,7 @@ streaming-cloud/
 │       │   └── RouterManager.ts
 │       └── transports/
 │
-├── frontend/                   # React Frontend
+├── frontend/                   # Svelte Frontend
 │   └── src/
 │       ├── components/
 │       │   ├── room/
@@ -167,8 +167,8 @@ streaming-cloud/
 
 ### Prerequisites
 - Docker & Docker Compose
-- Node.js 20+
-- PHP 8.3+
+- Node.js 24+
+- PHP 8.4+
 - Neon account (https://neon.tech)
 - Stripe account
 - Cloudflare account (for R2)

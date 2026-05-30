@@ -1,8 +1,8 @@
 # Trading Room SaaS Platform
 ## Complete Deployment Guide
 
-**Version**: 1.0.0
-**Last Updated**: November 24, 2025
+**Version**: 1.1.0
+**Last Updated**: May 29, 2026
 **Estimated Time**: 4-6 hours
 **Difficulty**: Intermediate
 
@@ -1582,7 +1582,7 @@ After deployment, verify:
 
 ### Documentation
 - **Supabase**: https://supabase.com/docs
-- **Laravel**: https://laravel.com/docs/12.x
+- **Laravel**: https://laravel.com/docs/13.x
 - **Mediasoup**: https://mediasoup.org/documentation/
 - **Docker**: https://docs.docker.com
 - **Stripe**: https://stripe.com/docs
@@ -1682,6 +1682,6 @@ Your Trading Room SaaS platform is now deployed and ready for users!
 
 ---
 
-**Document Version**: 1.0.0
-**Last Updated**: November 24, 2025
+**Document Version**: 1.1.0
+**Last Updated**: May 29, 2026
 **Author**: Trading Room Team
