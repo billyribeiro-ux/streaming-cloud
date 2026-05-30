@@ -1,12 +1,12 @@
 {
     "name": "tradingroom/saas-backend",
     "type": "project",
-    "description": "Trading Room SaaS Platform - Laravel 12 Backend",
+    "description": "Trading Room SaaS Platform - Laravel 13 Backend",
     "keywords": ["laravel", "saas", "webrtc", "trading"],
     "license": "proprietary",
     "require": {
         "php": "^8.3",
-        "laravel/framework": "^12.0",
+        "laravel/framework": "^13.0",
         "laravel/sanctum": "^4.0",
         "laravel/cashier": "^15.0",
         "laravel/horizon": "^5.0",

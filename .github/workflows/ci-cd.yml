@@ -29,7 +29,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:17-alpine
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
@@ -43,7 +43,7 @@ jobs:
           --health-retries 5
 
       redis:
-        image: redis:7-alpine
+        image: redis:8-alpine
         ports:
           - 6379:6379
         options: >-
@@ -59,7 +59,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           extensions: pdo, pdo_pgsql, redis, gd, zip, intl, mbstring, bcmath
           coverage: xdebug
 
@@ -121,7 +121,7 @@ jobs:
 
     services:
       redis:
-        image: redis:7-alpine
+        image: redis:8-alpine
         ports:
           - 6379:6379
 
@@ -132,7 +132,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: signaling/package-lock.json
 
@@ -169,7 +169,7 @@ jobs:
 
     services:
       redis:
-        image: redis:7-alpine
+        image: redis:8-alpine
         ports:
           - 6379:6379
 
@@ -180,7 +180,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: sfu/package-lock.json
 
@@ -217,7 +217,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
