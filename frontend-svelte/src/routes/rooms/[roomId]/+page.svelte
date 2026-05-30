@@ -7,7 +7,7 @@
 
 <script lang="ts">
   import { page } from '$app/stores';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { SignalingClient } from '$lib/signaling';
   import { MediaClient } from '$lib/media-client';
   import { roomStore, type Participant } from '$lib/stores/room.svelte';
@@ -193,13 +193,8 @@
       roomStore.setConnected(true);
       roomStore.setReconnecting(false);
 
-      // Authenticate then join
-      signaling.send({
-        event: 'authenticate',
-        data: { token, organizationId },
-      });
-
-      setTimeout(() => {
+      // Authenticate then join once authenticated
+      signaling.once('authenticated', () => {
         signaling.send({
           event: 'join-room',
           data: {
@@ -209,7 +204,11 @@
             rtpCapabilities: media.rtpCapabilities,
           },
         });
-      }, 500);
+      });
+      signaling.send({
+        event: 'authenticate',
+        data: { token, organizationId },
+      });
     });
 
     signaling.on('close', () => {
@@ -398,9 +397,12 @@
 
   // ---- Connect on mount ----
 
-  connectAndJoin();
+  onMount(() => {
+    connectAndJoin();
+  });
 
   onDestroy(() => {
+    signaling.off('message', handleMessage);
     leaveRoom();
     signaling.disconnect();
     roomStore.reset();

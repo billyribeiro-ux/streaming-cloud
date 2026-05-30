@@ -2,8 +2,10 @@
  * Room Store - Svelte 5 Runes state management
  *
  * Replaces the Zustand store with Svelte 5 $state runes.
- * Manages participants, chat, alerts, and UI state.
+ * Uses SvelteMap for proper fine-grained reactivity on Map mutations.
  */
+
+import { SvelteMap } from 'svelte/reactivity';
 
 export interface Participant {
   id: string;
@@ -74,7 +76,7 @@ function createRoomStore() {
   });
 
   // Participants
-  let participants = $state<Map<string, Participant>>(new Map());
+  let participants = $state<Map<string, Participant>>(new SvelteMap());
   let spotlightedParticipantId = $state<string | null>(null);
 
   // Local media state
@@ -91,7 +93,7 @@ function createRoomStore() {
   let activeSpeakerId = $state<string | null>(null);
 
   // Consumers
-  let consumers = $state<Map<string, ConsumerEntry>>(new Map());
+  let consumers = $state<Map<string, ConsumerEntry>>(new SvelteMap());
 
   // Local streams
   let localStream = $state<MediaStream | null>(null);
@@ -218,7 +220,7 @@ function createRoomStore() {
 
     // Participant actions
     setParticipants(list: Participant[]) {
-      const map = new Map<string, Participant>();
+      const map = new SvelteMap<string, Participant>();
       for (const p of list) {
         map.set(p.id, {
           ...p,
@@ -242,9 +244,7 @@ function createRoomStore() {
         producers: data.producers || [],
       };
 
-      const newMap = new Map(participants);
-      newMap.set(p.id, p);
-      participants = newMap;
+      participants.set(p.id, p);
 
       // System message
       messages = [
@@ -264,16 +264,12 @@ function createRoomStore() {
       const existing = participants.get(id);
       if (!existing) return;
 
-      const newMap = new Map(participants);
-      newMap.set(id, { ...existing, ...updates });
-      participants = newMap;
+      participants.set(id, { ...existing, ...updates });
     },
 
     removeParticipant(id: string) {
       const existing = participants.get(id);
-      const newMap = new Map(participants);
-      newMap.delete(id);
-      participants = newMap;
+      participants.delete(id);
 
       if (existing) {
         messages = [
@@ -300,19 +296,15 @@ function createRoomStore() {
 
     // Consumer actions
     addConsumer(entry: ConsumerEntry) {
-      const newMap = new Map(consumers);
-      newMap.set(entry.consumerId, entry);
-      consumers = newMap;
+      consumers.set(entry.consumerId, entry);
     },
 
     removeConsumer(consumerId: string) {
-      const newMap = new Map(consumers);
-      newMap.delete(consumerId);
-      consumers = newMap;
+      consumers.delete(consumerId);
     },
 
     clearConsumers() {
-      consumers = new Map();
+      consumers.clear();
     },
 
     // Chat actions
@@ -379,7 +371,7 @@ function createRoomStore() {
         muteOnEntry: true,
         waitingRoom: false,
       };
-      participants = new Map();
+      participants = new SvelteMap();
       spotlightedParticipantId = null;
       isVideoEnabled = false;
       isAudioEnabled = false;
@@ -388,7 +380,7 @@ function createRoomStore() {
       isJoined = false;
       isReconnecting = false;
       activeSpeakerId = null;
-      consumers = new Map();
+      consumers = new SvelteMap();
       localStream = null;
       screenStream = null;
       messages = [];

@@ -3,11 +3,13 @@
 -->
 
 <script lang="ts">
+  import { goto } from '$app/navigation';
+
   let roomId = $state('');
 
   function joinRoom() {
     if (roomId.trim()) {
-      window.location.href = `/rooms/${encodeURIComponent(roomId.trim())}`;
+      goto(`/rooms/${encodeURIComponent(roomId.trim())}`);
     }
   }
 </script>
