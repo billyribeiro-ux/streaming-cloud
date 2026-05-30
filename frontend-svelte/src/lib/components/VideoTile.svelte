@@ -20,32 +20,20 @@
     isLocal?: boolean;
   } = $props();
 
-  let videoEl: HTMLVideoElement | undefined = $state();
-  let audioEl: HTMLAudioElement | undefined = $state();
+  // Actions bind media tracks to elements without $effect + bind:this
+  function videoAction(node: HTMLVideoElement) {
+    $effect(() => {
+      node.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
+    });
+  }
 
-  // Bind video track to <video> element
-  $effect(() => {
-    if (videoEl) {
-      if (videoTrack) {
-        const stream = new MediaStream([videoTrack]);
-        videoEl.srcObject = stream;
-      } else {
-        videoEl.srcObject = null;
+  function audioAction(node: HTMLAudioElement) {
+    $effect(() => {
+      if (!isLocal) {
+        node.srcObject = audioTrack ? new MediaStream([audioTrack]) : null;
       }
-    }
-  });
-
-  // Bind audio track to <audio> element (not for local participant)
-  $effect(() => {
-    if (audioEl && !isLocal) {
-      if (audioTrack) {
-        const stream = new MediaStream([audioTrack]);
-        audioEl.srcObject = stream;
-      } else {
-        audioEl.srcObject = null;
-      }
-    }
-  });
+    });
+  }
 
   const qualityColor = $derived.by(() => {
     switch (participant.connectionQuality) {
@@ -82,7 +70,7 @@
   {#if videoTrack && participant.isVideoEnabled}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
-      bind:this={videoEl}
+      use:videoAction
       autoplay
       playsinline
       muted={isLocal}
@@ -101,7 +89,7 @@
 
   <!-- Audio element for remote participants -->
   {#if audioTrack && !isLocal}
-    <audio bind:this={audioEl} autoplay></audio>
+    <audio use:audioAction autoplay></audio>
   {/if}
 
   <!-- Bottom overlay: name + role -->
