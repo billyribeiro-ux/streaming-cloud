@@ -44,6 +44,9 @@
         <li>
           <a href="/settings/billing" class="text-brand-400 hover:text-brand-300">Billing & plans →</a>
         </li>
+        <li>
+          <a href="/settings/organization" class="text-brand-400 hover:text-brand-300">Organization & workspaces →</a>
+        </li>
       </ul>
     </div>
   </div>
