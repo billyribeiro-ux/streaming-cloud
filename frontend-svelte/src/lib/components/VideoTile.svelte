@@ -1,9 +1,13 @@
 <!--
   VideoTile Component
   Displays a participant's video/audio with overlays for name, role, quality, and state.
+  Icons: Phosphor (bundled Svelte components — no external SVG fetch).
 -->
 
 <script lang="ts">
+  import MicrophoneSlash from 'phosphor-svelte/lib/MicrophoneSlash';
+  import VideoCameraSlash from 'phosphor-svelte/lib/VideoCameraSlash';
+  import type { Attachment } from 'svelte/attachments';
   import type { Participant } from '../stores/room.svelte';
 
   let {
@@ -20,22 +24,21 @@
     isLocal?: boolean;
   } = $props();
 
-  // Actions bind media tracks to elements without $effect + bind:this
-  function videoAction(node: HTMLVideoElement) {
-    $effect(() => {
-      node.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
-      return () => { node.srcObject = null; };
-    });
-  }
+  // Attachments bind the (reactive) media tracks to the element; they re-run
+  // when the referenced track changes and clean up on teardown.
+  const bindVideo: Attachment<HTMLVideoElement> = (node) => {
+    node.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
+    return () => {
+      node.srcObject = null;
+    };
+  };
 
-  function audioAction(node: HTMLAudioElement) {
-    $effect(() => {
-      if (!isLocal) {
-        node.srcObject = audioTrack ? new MediaStream([audioTrack]) : null;
-      }
-      return () => { node.srcObject = null; };
-    });
-  }
+  const bindAudio: Attachment<HTMLAudioElement> = (node) => {
+    node.srcObject = !isLocal && audioTrack ? new MediaStream([audioTrack]) : null;
+    return () => {
+      node.srcObject = null;
+    };
+  };
 
   const qualityColor = $derived.by(() => {
     switch (participant.connectionQuality) {
@@ -70,13 +73,7 @@
     : 'ring-1 ring-slate-700'}"
 >
   {#if videoTrack && participant.isVideoEnabled}
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video
-      use:videoAction
-      autoplay
-      playsinline
-      muted={isLocal}
-      class="h-full w-full object-cover"
+    <video {@attach bindVideo} autoplay playsinline muted={isLocal} class="h-full w-full object-cover"
     ></video>
   {:else}
     <!-- No video - show avatar placeholder -->
@@ -91,7 +88,7 @@
 
   <!-- Audio element for remote participants -->
   {#if audioTrack && !isLocal}
-    <audio use:audioAction autoplay></audio>
+    <audio {@attach bindAudio} autoplay></audio>
   {/if}
 
   <!-- Bottom overlay: name + role -->
@@ -99,7 +96,7 @@
     class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2"
   >
     <div class="flex items-center gap-2">
-      <span class="text-sm font-medium text-white truncate">
+      <span class="truncate text-sm font-medium text-white">
         {participant.displayName}
         {#if isLocal}
           <span class="text-slate-400">(You)</span>
@@ -107,9 +104,7 @@
       </span>
 
       {#if roleBadge}
-        <span
-          class="rounded-full bg-brand-600 px-2 py-0.5 text-xs font-medium text-white"
-        >
+        <span class="rounded-full bg-brand-600 px-2 py-0.5 text-xs font-medium text-white">
           {roleBadge}
         </span>
       {/if}
@@ -118,31 +113,29 @@
 
   <!-- Top-right: connection quality -->
   <div class="absolute right-2 top-2 flex items-center gap-1.5">
-    <span class="h-2 w-2 rounded-full {qualityColor}" title="Connection: {participant.connectionQuality}"></span>
+    <span
+      class="h-2 w-2 rounded-full {qualityColor}"
+      title="Connection: {participant.connectionQuality}"
+    ></span>
   </div>
 
   <!-- Top-left: muted / video-off indicators -->
   <div class="absolute left-2 top-2 flex items-center gap-1.5">
     {#if !participant.isAudioEnabled}
       <span
-        class="flex h-6 w-6 items-center justify-center rounded-full bg-red-600/80"
+        class="flex h-6 w-6 items-center justify-center rounded-full bg-red-600/80 text-white"
         title="Muted"
       >
-        <svg class="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-          <path stroke-linecap="round" stroke-linejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-        </svg>
+        <MicrophoneSlash size={14} weight="bold" />
       </span>
     {/if}
 
     {#if !participant.isVideoEnabled}
       <span
-        class="flex h-6 w-6 items-center justify-center rounded-full bg-red-600/80"
+        class="flex h-6 w-6 items-center justify-center rounded-full bg-red-600/80 text-white"
         title="Camera off"
       >
-        <svg class="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 9.5v5M18.364 5.636a9 9 0 010 12.728M3 3l18 18" />
-        </svg>
+        <VideoCameraSlash size={14} weight="bold" />
       </span>
     {/if}
   </div>

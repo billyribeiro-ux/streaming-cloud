@@ -125,6 +125,7 @@ Node **24.16.0** · Svelte **5** · SvelteKit **2** · Vite **8** · TypeScript 
 | Package | Constraint |
 |---------|------------|
 | mediasoup-client | ^3.20.0 |
+| phosphor-svelte | ^3.1.0 (icons — bundled components, no external SVG fetch) |
 | @sveltejs/adapter-static | ^3.0.10 |
 | @sveltejs/kit | ^2.63.0 |
 | @sveltejs/vite-plugin-svelte | ^7.1.2 |
