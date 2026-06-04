@@ -17,7 +17,11 @@
 
 ---
 
-## Backend — Laravel SaaS API (`backend/`)
+## Backend — Laravel SaaS API (`backend/`) — ⛔ DECOMMISSIONED
+
+> Replaced by the Rust API (`backend-rs/`, see below). Retained here only as a
+> record of the original dependency pinning. The `backend/` directory has been
+> removed.
 
 PHP **^8.5** · Laravel **13**
 
@@ -56,7 +60,11 @@ PHP **^8.5** · Laravel **13**
 
 ---
 
-## React Frontend (`frontend/`)
+## React Frontend (`frontend/`) — ⛔ DECOMMISSIONED
+
+> Replaced by the SvelteKit frontend (`frontend-svelte/`, below). Retained here
+> only as a record of the original dependency pinning. The `frontend/` directory
+> has been removed.
 
 Node **24.16.0** · React **19** · Vite **8** · TypeScript **6**
 

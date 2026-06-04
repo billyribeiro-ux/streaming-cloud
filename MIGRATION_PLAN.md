@@ -217,13 +217,18 @@ component by `svelte-check` + `svelte-autofixer`):
 - ✅ B6 admin: `users.is_admin`, `AdminUser` guard, `/v1/admin/{stats,users}`;
   Svelte admin console (dashboard + users) → **full feature parity reached**
 
-**Residual (tracked):**
-- ⬜ B5 polish: per-IP rate limiting (`tower_governor`), OpenTelemetry export,
-  `#[sqlx::test]` integration suite (needs a CI Postgres → also unlocks promoting
-  sqlx runtime queries to compile-time-checked macros)
-- ⬜ Final decommission (deliberate cutover step): once production traffic has
-  been shifted to `api-rs` + `frontend-svelte`, remove React `frontend/` + Laravel
-  `backend/` and repoint nginx/compose/CI. Kept until then per the strangler plan.
+- ✅ B5 hardening: per-IP rate limiting (`tower_governor`, `SmartIpKeyExtractor`)
+  + request-body-size limit
+- ✅ **Decommission complete**: removed React `frontend/` + Laravel `backend/`
+  (and their Dockerfiles, nginx/php/supervisor configs); repointed CI (dropped
+  `backend-test`/`frontend-test`), docker-compose (Rust API + SvelteKit are the
+  only app services; SvelteKit on `:80`), Makefile, README, and stack.md.
+  **`backend-rs` + `frontend-svelte` are now the sole stack.**
+
+**Optional follow-ons (not blocking):**
+- ⬜ OpenTelemetry OTLP export to the existing Jaeger
+- ⬜ CI Postgres + `#[sqlx::test]` integration suite → promote sqlx runtime
+  queries to compile-time-checked macros (offline `.sqlx` cache)
 
 ---
 

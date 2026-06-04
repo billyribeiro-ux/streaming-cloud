@@ -22,7 +22,7 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 │        │                                                                   │
 │        ▼                                                                   │
 │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐             │
-│   │  Laravel 13  │────▶│    Redis     │────▶│ Cloudflare   │             │
+│   │  Rust  API   │────▶│    Redis     │────▶│ Cloudflare   │             │
 │   │  SaaS API    │     │    Cache     │     │  R2 Storage  │             │
 │   └──────────────┘     └──────────────┘     └──────────────┘             │
 │                                                                             │
@@ -31,13 +31,12 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 
 ## Tech Stack
 
-### Backend - Core SaaS
-- **Laravel 13** (PHP 8.5) - Core SaaS API
-- **Laravel Cashier** - Stripe Billing integration
-- **Laravel Sanctum** - API authentication
-- **Laravel Horizon** - Queue management
-- **PostgreSQL** via Neon (Serverless)
-- **Redis** - Caching and queues
+### Backend - Core SaaS (`backend-rs/`)
+- **Rust** with **Axum** + **Tokio** - Core SaaS API
+- **sqlx** - Postgres access (migrations + typed queries)
+- Sanctum-compatible tokens, **Argon2id** password hashing
+- Stripe billing (REST + signed webhooks), Cloudflare R2 (presigned URLs)
+- **PostgreSQL** via Neon (Serverless) · **Redis** - cache / coordination
 
 ### Realtime & Media
 - **Node.js 24.16.0** with TypeScript
@@ -45,12 +44,11 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 - **WebRTC** - Real-time media streaming
 - **Coturn** - TURN/STUN server
 
-### Frontend
-- **Svelte 5.56** with TypeScript
-- **Vite 8** - Build tool
-- **TailwindCSS** - Styling
-- **Zustand** - State management
-- **mediasoup-client v3** - WebRTC client
+### Frontend (`frontend-svelte/`)
+- **Svelte 5** + **SvelteKit** (adapter-node, SSR) with TypeScript
+- Cookie-based BFF auth (token never exposed to client JS)
+- **Vite 8** - Build tool · **TailwindCSS 4** - Styling
+- Svelte 5 runes for state · **mediasoup-client v3** - WebRTC client
 
 ### Infrastructure
 - **Hetzner Cloud** - Primary hosting
@@ -63,18 +61,22 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 
 ```
 streaming-cloud/
-├── backend/                    # Laravel 13 SaaS API
-│   ├── app/
-│   │   ├── Http/Controllers/   # API Controllers
-│   │   ├── Models/             # Eloquent Models
-│   │   ├── Services/           # Business Logic
-│   │   ├── Jobs/               # Queue Jobs
-│   │   └── Policies/           # Authorization
-│   ├── config/
-│   ├── database/
-│   │   ├── migrations/
-│   │   └── seeders/
-│   └── routes/
+├── backend-rs/                 # Rust SaaS API (Axum + Tokio + sqlx)
+│   └── crates/api/
+│       ├── src/
+│       │   ├── domain/         # Domain models
+│       │   ├── db/             # sqlx repositories
+│       │   ├── http/           # Axum routers + handlers
+│       │   ├── auth/           # password hashing, tokens, extractors
+│       │   ├── signaling/      # SFU control-plane + token mint
+│       │   ├── stripe.rs       # Stripe REST client + webhooks
+│       │   └── s3.rs           # R2 SigV4 presigner
+│       └── migrations/
+│
+├── frontend-svelte/            # SvelteKit frontend (adapter-node, SSR)
+│   └── src/
+│       ├── routes/             # File-based routes (+page/+server/+layout)
+│       └── lib/                # BFF client, stores, components
 │
 ├── signaling/                  # Node.js Signaling Server
 │   └── src/
@@ -93,18 +95,6 @@ streaming-cloud/
 │       ├── routers/
 │       │   └── RouterManager.ts
 │       └── transports/
-│
-├── frontend/                   # Svelte Frontend
-│   └── src/
-│       ├── components/
-│       │   ├── room/
-│       │   ├── dashboard/
-│       │   └── ui/
-│       ├── hooks/
-│       │   └── useWebRTC.ts
-│       ├── stores/
-│       │   └── roomStore.ts
-│       └── services/
 │
 ├── infrastructure/             # DevOps & Infrastructure
 │   ├── docker/
@@ -168,7 +158,7 @@ streaming-cloud/
 ### Prerequisites
 - Docker & Docker Compose
 - Node.js 24.16.0
-- PHP 8.5+
+- Rust (stable) + Cargo
 - Neon account (https://neon.tech)
 - Stripe account
 - Cloudflare account (for R2)
@@ -196,12 +186,18 @@ docker compose up -d
 
 ### Development
 
-#### Backend (Laravel)
+#### Backend (Rust API)
 ```bash
-cd backend
-composer install
-php artisan migrate
-php artisan serve
+cd backend-rs
+cargo run            # serves on :8080
+# migrations: sqlx migrate run --source crates/api/migrations
+```
+
+#### Frontend (SvelteKit)
+```bash
+cd frontend-svelte
+npm ci
+npm run dev          # serves on :5173
 ```
 
 #### Signaling Server
@@ -262,7 +258,7 @@ Authorization: Bearer <jwt-token>
 
 2. Configure DNS in Cloudflare:
    - `tradingroom.io` → Frontend
-   - `api.tradingroom.io` → Laravel API
+   - `api.tradingroom.io` → Rust API
    - `signaling.tradingroom.io` → Signaling Server
    - `sfu-*.tradingroom.io` → SFU Nodes
    - `turn.tradingroom.io` → TURN Server
