@@ -1,0 +1,36 @@
+# =============================================================================
+# Trading Room SaaS - Rust API (Axum + Tokio + sqlx)
+# =============================================================================
+# Multi-stage build → small Debian-slim runtime. Build context is the repo root.
+# =============================================================================
+
+# Stage 1: Build
+FROM rust:1-bookworm AS builder
+
+WORKDIR /app
+COPY backend-rs/ ./
+
+# `--locked` asserts Cargo.lock is authoritative (reproducible builds).
+RUN cargo build --release --locked
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/tradingroom-api /usr/local/bin/tradingroom-api
+# Ship migrations alongside the binary for provisioning fresh databases.
+COPY --from=builder /app/crates/api/migrations /app/migrations
+
+ENV API_HOST=0.0.0.0 \
+    API_PORT=8080 \
+    RUST_LOG=info
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+CMD ["tradingroom-api"]

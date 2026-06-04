@@ -297,11 +297,74 @@ jobs:
         run: npx tsc --noEmit
 
   # ===========================================================================
+  # Rust API (Axum/Tokio/sqlx) Tests
+  # ===========================================================================
+  api-rs-test:
+    name: Rust API Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-rs
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend-rs
+
+      - name: Run cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: Run cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test
+
+  # ===========================================================================
+  # SvelteKit Frontend Tests
+  # ===========================================================================
+  frontend-svelte-test:
+    name: SvelteKit Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-svelte
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.16.0'
+          cache: 'npm'
+          cache-dependency-path: frontend-svelte/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run svelte-check
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+  # ===========================================================================
   # Build & Push Docker Images
   # ===========================================================================
   build:
     name: Build Docker Images
-    needs: [backend-test, signaling-test, sfu-test, frontend-test, signaling-rs-test, recorder-test]
+    needs: [backend-test, signaling-test, sfu-test, frontend-test, signaling-rs-test, recorder-test, api-rs-test, frontend-svelte-test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
@@ -324,6 +387,12 @@ jobs:
           - service: frontend
             dockerfile: infrastructure/docker/Dockerfile.frontend
             context: frontend
+          - service: api-rs
+            dockerfile: infrastructure/docker/Dockerfile.api-rs
+            context: .
+          - service: frontend-svelte
+            dockerfile: infrastructure/docker/Dockerfile.frontend-svelte
+            context: .
 
     steps:
       - name: Checkout code

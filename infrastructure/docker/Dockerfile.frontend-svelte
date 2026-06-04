@@ -1,0 +1,36 @@
+# =============================================================================
+# Trading Room SaaS - SvelteKit Frontend (adapter-node, SSR)
+# =============================================================================
+# Build context is the repo root.
+# =============================================================================
+
+# Stage 1: Build
+FROM node:24.16.0-alpine AS builder
+
+WORKDIR /app
+COPY frontend-svelte/package*.json ./
+RUN npm ci
+
+COPY frontend-svelte/ ./
+RUN npm run build
+
+# Stage 2: Runtime (Node server produced by @sveltejs/adapter-node)
+FROM node:24.16.0-alpine
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=3000
+
+RUN apk add --no-cache curl
+
+COPY --from=builder /app/build ./build
+COPY --from=builder /app/package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3000/ || exit 1
+
+CMD ["node", "build"]

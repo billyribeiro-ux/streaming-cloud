@@ -264,13 +264,45 @@ Node **24.16.0** · `engines.node >=24.16.0`
 
 ---
 
+## Backend API — Rust (`backend-rs/`) — Laravel rewrite
+
+Axum + Tokio + sqlx Cargo workspace; the active rewrite of the Laravel API
+(strangler migration). Full endpoint parity: auth, organizations, workspaces,
+rooms (CRUD + lifecycle + signaling control-plane), chat, alerts, analytics,
+billing (Stripe), files (R2), health, metrics.
+
+| Crate | Version |
+|-------|---------|
+| axum | 0.8 |
+| tokio | 1 (full) |
+| tower-http | 0.6 (trace, cors, compression, timeout) |
+| sqlx | 0.9 (postgres, tls-rustls, uuid, chrono, json) |
+| serde / serde_json | 1 |
+| uuid | 1 · chrono | 0.4 |
+| argon2 | 0.5 (+ password-hash getrandom) · bcrypt | 0.19 (legacy verify) |
+| jsonwebtoken | 10 · sha2 | 0.10 · hmac | 0.12 · rand | 0.9 |
+| reqwest | 0.13 (json, form, rustls) — Stripe + SFU control-plane |
+| garde | 0.23 (derive, email) — validation |
+| thiserror | 2 · anyhow | 1 |
+| tracing | 0.1 · tracing-subscriber | 0.3 · metrics-exporter-prometheus | 0.18 |
+| dotenvy | 0.15 |
+
+Notable L7 choices: Sanctum-compatible tokens; Argon2id with transparent
+legacy-bcrypt rehash; a lean Stripe REST client + HMAC webhook verification
+(no `async-stripe`); a KAT-tested SigV4 presigner for R2 (no `aws-sdk-s3`);
+RFC 7807 problem+json errors; a router-conflict test; soft-cancel for rooms.
+
+---
+
 ## Infrastructure — Docker Base Images
 
 | Image | Tag | Used by |
 |-------|-----|---------|
-| node | **24.16.0-alpine** | frontend, signaling, recorder builds |
+| node | **24.16.0-alpine** | frontend, signaling, recorder, **frontend-svelte** builds |
 | node | **24.16.0-bookworm** / **24.16.0-bookworm-slim** | sfu (native mediasoup build) |
-| php | **8.5-fpm-alpine** | backend |
+| rust | **1-bookworm** | **api-rs** build stage |
+| debian | **bookworm-slim** | **api-rs** runtime |
+| php | **8.5-fpm-alpine** | backend (Laravel, being decommissioned) |
 | composer | **2** | backend build stage |
 | nginx | **alpine** (1.31 mainline) | frontend serve, backend |
 | postgres | **18-alpine** | CI test DB |

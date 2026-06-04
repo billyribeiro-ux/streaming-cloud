@@ -392,6 +392,73 @@ services:
       timeout: 10s
       retries: 3
 
+  # ===========================================================================
+  # Rust API (Axum/Tokio/sqlx) — the Laravel backend rewrite
+  # ===========================================================================
+  api-rs:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.api-rs
+    container_name: tradingroom-api-rs
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    stop_grace_period: 30s
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8080
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-tradingroom_redis}@redis:6379
+      - SIGNALING_URL=${SIGNALING_URL:-http://signaling:3000}
+      - SIGNALING_SECRET=${SIGNALING_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - APP_URL=${APP_URL}
+      - STRIPE_SECRET=${STRIPE_SECRET}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_BUCKET=${R2_BUCKET}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - RUST_LOG=info
+    depends_on:
+      - redis
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # SvelteKit Frontend (adapter-node, SSR) — the React frontend rewrite
+  # ===========================================================================
+  frontend-svelte:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.frontend-svelte
+    container_name: tradingroom-frontend-svelte
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      # Server-side BFF target (the Rust API) and the public signaling WS origin.
+      - API_URL=http://api-rs:8080
+      - PUBLIC_SIGNALING_URL=${SIGNALING_WS_URL}
+    depends_on:
+      - api-rs
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 # =============================================================================
 # Networks
 # =============================================================================
