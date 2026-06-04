@@ -77,6 +77,18 @@ export async function login(
   return { token: data.token, user: toSessionUser(data.user) };
 }
 
+export async function register(
+  name: string,
+  email: string,
+  password: string
+): Promise<{ token: string; user: SessionUser }> {
+  const data = await request<{ token: string; user: ApiUser }>('/v1/auth/register', {
+    method: 'POST',
+    body: { name, email, password },
+  });
+  return { token: data.token, user: toSessionUser(data.user) };
+}
+
 /** Resolves the current user for a token, or `null` if the token is invalid. */
 export async function fetchCurrentUser(token: string): Promise<SessionUser | null> {
   try {

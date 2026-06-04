@@ -5,7 +5,10 @@
 //! and graceful shutdown on `SIGTERM`/`Ctrl-C`. Domain endpoints are added in
 //! later phases (B1: auth, B2: rooms, …) on top of this skeleton.
 
+mod auth;
 mod config;
+mod db;
+mod domain;
 mod error;
 mod http;
 mod observability;

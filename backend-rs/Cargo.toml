@@ -27,6 +27,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 # Auth
 argon2 = "0.5"
+# Enables `OsRng` for Argon2 salt generation (argon2's default `rand` feature
+# only pulls `rand_core`, not the `getrandom` backend).
+password-hash = { version = "0.5", features = ["getrandom"] }
+bcrypt = "0.19"
 jsonwebtoken = "10"
 sha2 = "0.10"
 rand = "0.9"
@@ -36,7 +40,7 @@ aws-sdk-s3 = "1"
 apalis = "0.7"
 redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 # Validation / errors
-garde = { version = "0.23", features = ["derive"] }
+garde = { version = "0.23", features = ["derive", "email"] }
 thiserror = "2"
 anyhow = "1"
 # Observability
