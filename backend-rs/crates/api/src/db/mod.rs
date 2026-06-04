@@ -6,6 +6,7 @@
 //! cache), these can be promoted to `query!`/`query_as!` for static checking.
 
 pub mod alerts;
+pub mod analytics;
 pub mod chat;
 pub mod organizations;
 pub mod rooms;

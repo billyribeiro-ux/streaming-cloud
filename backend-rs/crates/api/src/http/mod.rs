@@ -4,6 +4,7 @@
 //! are implemented in later phases.
 
 mod alerts;
+mod analytics;
 mod auth;
 mod chat;
 mod guard;
@@ -37,6 +38,7 @@ pub fn router(state: AppState) -> Router {
         .merge(rooms::routes())
         .merge(chat::routes())
         .merge(alerts::routes())
+        .merge(analytics::routes())
         .route("/metrics", get(metrics::render))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
