@@ -13,6 +13,12 @@ pub struct Config {
     pub database_url: String,
     pub log_level: String,
     pub cors_origins: Vec<String>,
+    /// Base URL of the signaling control-plane (Rust `signaling-rs`).
+    pub signaling_url: String,
+    /// Shared secret presented as a bearer token on control-plane calls.
+    pub signaling_secret: String,
+    /// HS256 key used to mint short-lived client signaling tokens.
+    pub jwt_secret: String,
 }
 
 impl Config {
@@ -24,6 +30,11 @@ impl Config {
                 "postgres://postgres:postgres@localhost:5432/tradingroom".to_string()
             }),
             log_level: env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+            signaling_url: env::var("SIGNALING_URL")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            signaling_secret: env::var("SIGNALING_SECRET")
+                .unwrap_or_else(|_| "dev-signaling-secret".to_string()),
+            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "dev-jwt-secret".to_string()),
             cors_origins: env::var("CORS_ORIGINS")
                 .map(|raw| {
                     raw.split(',')

@@ -28,7 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/rooms/live", get(live))
         .route("/v1/rooms/upcoming", get(upcoming))
         .route("/v1/rooms/public", get(public))
-        .route("/v1/rooms/{id}", get(show).put(update).delete(destroy))
+        .route("/v1/rooms/{room_id}", get(show).put(update).delete(destroy))
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,9 +153,11 @@ async fn store(
 async fn show(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
-    Path(id): Path<Uuid>,
+    Path(room_id): Path<Uuid>,
 ) -> AppResult<Json<Room>> {
-    Ok(Json(guard::room_authorized(&state, id, user.id).await?))
+    Ok(Json(
+        guard::room_authorized(&state, room_id, user.id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -177,15 +179,15 @@ struct UpdateRoom {
 async fn update(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
-    Path(id): Path<Uuid>,
+    Path(room_id): Path<Uuid>,
     Json(req): Json<UpdateRoom>,
 ) -> AppResult<Json<Room>> {
     req.validate()?;
-    guard::room_authorized(&state, id, user.id).await?;
+    guard::room_authorized(&state, room_id, user.id).await?;
 
     let room = db::rooms::update(
         &state.db,
-        id,
+        room_id,
         RoomUpdate {
             name: req.name,
             description: req.description,
@@ -203,10 +205,11 @@ async fn update(
 async fn destroy(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
-    Path(id): Path<Uuid>,
+    Path(room_id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    guard::room_authorized(&state, id, user.id).await?;
-    db::rooms::delete(&state.db, id).await?;
+    guard::room_authorized(&state, room_id, user.id).await?;
+    // Soft-cancel rather than hard-delete (preserves history/recordings).
+    db::rooms::cancel(&state.db, room_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -12,6 +12,7 @@ mod health;
 mod metrics;
 mod organizations;
 mod rooms;
+mod rooms_live;
 mod workspaces;
 
 use std::time::Duration;
@@ -26,20 +27,27 @@ use tower_http::trace::TraceLayer;
 
 use crate::state::AppState;
 
-/// Builds the application router with shared middleware applied.
-pub fn router(state: AppState) -> Router {
-    let cors = cors_layer(&state.config.cors_origins);
-
+/// Assembles the full API route table (no middleware, no state). Kept separate
+/// so it can be built in tests to assert the table is conflict-free.
+fn api_routes() -> Router<AppState> {
     Router::new()
         .merge(health::routes())
         .merge(auth::routes())
         .merge(organizations::routes())
         .merge(workspaces::routes())
         .merge(rooms::routes())
+        .merge(rooms_live::routes())
         .merge(chat::routes())
         .merge(alerts::routes())
         .merge(analytics::routes())
         .route("/metrics", get(metrics::render))
+}
+
+/// Builds the application router with shared middleware applied.
+pub fn router(state: AppState) -> Router {
+    let cors = cors_layer(&state.config.cors_origins);
+
+    api_routes()
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(
@@ -69,4 +77,16 @@ fn cors_layer(origins: &[String]) -> CorsLayer {
         .allow_origin(allowed)
         .allow_methods(Any)
         .allow_headers(Any)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn router_table_is_conflict_free() {
+        // `matchit` panics on conflicting routes/parameter names at construction;
+        // building the full table here fails the test rather than at runtime.
+        let _ = api_routes();
+    }
 }

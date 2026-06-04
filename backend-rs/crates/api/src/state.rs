@@ -16,6 +16,8 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub db: PgPool,
     pub metrics: PrometheusHandle,
+    /// Shared HTTP client for control-plane calls to the signaling service.
+    pub http: reqwest::Client,
 }
 
 impl AppState {
@@ -29,10 +31,15 @@ impl AppState {
             .acquire_timeout(Duration::from_secs(30))
             .connect_lazy(&config.database_url)?;
 
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()?;
+
         Ok(Self {
             config: Arc::new(config),
             db,
             metrics,
+            http,
         })
     }
 }

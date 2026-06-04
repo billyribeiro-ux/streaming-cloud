@@ -127,10 +127,39 @@ pub async fn update(pool: &PgPool, id: Uuid, upd: RoomUpdate) -> AppResult<Room>
     .await?)
 }
 
-pub async fn delete(pool: &PgPool, id: Uuid) -> AppResult<()> {
-    sqlx::query("DELETE FROM rooms WHERE id = $1")
-        .bind(id)
-        .execute(pool)
-        .await?;
+/// Transitions a room to `live`, stamping `actual_start` on first go-live.
+pub async fn mark_live(pool: &PgPool, id: Uuid) -> AppResult<Room> {
+    Ok(sqlx::query_as::<_, Room>(
+        "UPDATE rooms SET status = 'live'::room_status, \
+            actual_start = COALESCE(actual_start, now()), updated_at = now() \
+         WHERE id = $1 RETURNING *",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Transitions a room to `ended`, stamping `actual_end`.
+pub async fn mark_ended(pool: &PgPool, id: Uuid) -> AppResult<Room> {
+    Ok(sqlx::query_as::<_, Room>(
+        "UPDATE rooms SET status = 'ended'::room_status, \
+            actual_end = now(), updated_at = now() \
+         WHERE id = $1 RETURNING *",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Soft-cancels a room (preserves history, sessions, recordings, and chat).
+/// We never hard-delete rooms — the audit trail and recording references must
+/// survive.
+pub async fn cancel(pool: &PgPool, id: Uuid) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE rooms SET status = 'cancelled'::room_status, updated_at = now() WHERE id = $1",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }

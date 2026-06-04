@@ -3,6 +3,7 @@
 pub mod alert;
 pub mod chat;
 pub mod organization;
+pub mod participant;
 pub mod room;
 pub mod user;
 pub mod workspace;

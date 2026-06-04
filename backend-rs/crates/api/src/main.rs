@@ -12,6 +12,7 @@ mod domain;
 mod error;
 mod http;
 mod observability;
+mod signaling;
 mod state;
 mod util;
 
