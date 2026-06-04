@@ -68,7 +68,7 @@ async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> AppResult<(StatusCode, Json<AuthResponse>)> {
-    req.validate().map_err(to_validation_error)?;
+    req.validate()?;
 
     if db::users::email_exists(&state.db, &req.email).await? {
         return Err(AppError::Validation(
@@ -102,7 +102,7 @@ async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<AuthResponse>> {
-    req.validate().map_err(to_validation_error)?;
+    req.validate()?;
 
     let user = db::users::find_by_email(&state.db, &req.email)
         .await?
@@ -147,7 +147,7 @@ async fn update_profile(
     AuthUser(user): AuthUser,
     Json(req): Json<ProfileRequest>,
 ) -> AppResult<Json<Value>> {
-    req.validate().map_err(to_validation_error)?;
+    req.validate()?;
 
     let updated = db::users::update_profile(
         &state.db,
@@ -162,8 +162,4 @@ async fn update_profile(
     .await?;
 
     Ok(Json(json!({ "user": UserResponse::from(updated) })))
-}
-
-fn to_validation_error(report: garde::Report) -> AppError {
-    AppError::Validation(report.to_string())
 }

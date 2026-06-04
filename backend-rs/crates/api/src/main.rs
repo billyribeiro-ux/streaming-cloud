@@ -13,6 +13,7 @@ mod error;
 mod http;
 mod observability;
 mod state;
+mod util;
 
 use std::net::SocketAddr;
 

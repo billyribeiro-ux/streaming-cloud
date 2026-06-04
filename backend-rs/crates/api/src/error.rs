@@ -79,4 +79,10 @@ impl IntoResponse for AppError {
     }
 }
 
+impl From<garde::Report> for AppError {
+    fn from(report: garde::Report) -> Self {
+        AppError::Validation(report.to_string())
+    }
+}
+
 pub type AppResult<T> = Result<T, AppError>;

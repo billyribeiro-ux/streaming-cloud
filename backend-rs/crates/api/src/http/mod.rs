@@ -6,6 +6,9 @@
 mod auth;
 mod health;
 mod metrics;
+mod organizations;
+mod rooms;
+mod workspaces;
 
 use std::time::Duration;
 
@@ -26,6 +29,9 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .merge(health::routes())
         .merge(auth::routes())
+        .merge(organizations::routes())
+        .merge(workspaces::routes())
+        .merge(rooms::routes())
         .route("/metrics", get(metrics::render))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
