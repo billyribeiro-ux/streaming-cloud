@@ -32,7 +32,7 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 ## Tech Stack
 
 ### Backend - Core SaaS
-- **Laravel 13** (PHP 8.4) - Core SaaS API
+- **Laravel 13** (PHP 8.5) - Core SaaS API
 - **Laravel Cashier** - Stripe Billing integration
 - **Laravel Sanctum** - API authentication
 - **Laravel Horizon** - Queue management
@@ -40,13 +40,13 @@ Enterprise-grade, multi-tenant Trading Room SaaS with ultra-low latency WebRTC s
 - **Redis** - Caching and queues
 
 ### Realtime & Media
-- **Node.js 24+** with TypeScript
+- **Node.js 24.16.0** with TypeScript
 - **Mediasoup v3.20** - SFU (Selective Forwarding Unit)
 - **WebRTC** - Real-time media streaming
 - **Coturn** - TURN/STUN server
 
 ### Frontend
-- **Svelte 5.55** with TypeScript
+- **Svelte 5.56** with TypeScript
 - **Vite 8** - Build tool
 - **TailwindCSS** - Styling
 - **Zustand** - State management
@@ -167,8 +167,8 @@ streaming-cloud/
 
 ### Prerequisites
 - Docker & Docker Compose
-- Node.js 24+
-- PHP 8.4+
+- Node.js 24.16.0
+- PHP 8.5+
 - Neon account (https://neon.tech)
 - Stripe account
 - Cloudflare account (for R2)

@@ -1,5 +1,5 @@
 # ---- Build stage ----
-FROM node:22-alpine AS builder
+FROM node:24.16.0-alpine AS builder
 
 # Install build dependencies for native modules (if any)
 RUN apk add --no-cache python3 make g++
@@ -16,7 +16,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # ---- Runtime stage ----
-FROM node:22-alpine
+FROM node:24.16.0-alpine
 
 # Install ffmpeg (required for recording pipeline)
 RUN apk add --no-cache ffmpeg

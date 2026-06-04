@@ -96,7 +96,7 @@
 2. **Create Project**:
    - Project name: `trading-room-production`
    - Region: Choose closest to your users (e.g., `aws-us-east-1`)
-   - Postgres version: `16` (latest stable)
+   - Postgres version: `18` (latest stable)
    - Click "Create project"
    - **Instant provisioning** - no waiting!
 
@@ -342,7 +342,7 @@
    Servers → Add Server
    ```
    - Location: Choose closest to users (e.g., Ashburn, USA)
-   - Image: `Ubuntu 22.04`
+   - Image: `Ubuntu 24.04 LTS`
    - Type: `CPX41` (8 vCPU, 16GB RAM) - $34/month
    - Volume: None
    - Network: Default
@@ -357,7 +357,7 @@
    Servers → Add Server
    ```
    - Location: Same as SFU
-   - Image: `Ubuntu 22.04`
+   - Image: `Ubuntu 24.04 LTS`
    - Type: `CX22` (2 vCPU, 4GB RAM) - $6/month
    - SSH Key: ✓ Select your key
    - Name: `trading-room-app-1`
@@ -1605,7 +1605,7 @@ After deployment, verify:
 | **SFU Server** | 4 vCPU, 8GB RAM, 80GB SSD |
 | **App Server** | 2 vCPU, 4GB RAM, 40GB SSD |
 | **Bandwidth** | 1 Gbps shared |
-| **OS** | Ubuntu 22.04 LTS |
+| **OS** | Ubuntu 24.04 LTS |
 
 ### Recommended (Production)
 
@@ -1614,7 +1614,7 @@ After deployment, verify:
 | **SFU Server** | 8 vCPU, 16GB RAM, 160GB SSD |
 | **App Server** | 2 vCPU, 4GB RAM, 80GB SSD |
 | **Bandwidth** | 1 Gbps dedicated |
-| **OS** | Ubuntu 22.04 LTS |
+| **OS** | Ubuntu 24.04 LTS |
 | **Load Balancer** | Optional for scaling |
 
 ---
