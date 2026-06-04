@@ -178,6 +178,21 @@ jobs:
       run:
         working-directory: backend-rs
 
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tradingroom
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -196,10 +211,12 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Run cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run tests
-        run: cargo test
+      - name: Run tests (unit + integration against Postgres)
+        run: cargo test --features integration
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/tradingroom
 
   # ===========================================================================
   # SvelteKit Frontend Tests

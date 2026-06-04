@@ -18,6 +18,9 @@ mod state;
 mod stripe;
 mod util;
 
+#[cfg(all(test, feature = "integration"))]
+mod tests_integration;
+
 use std::net::SocketAddr;
 
 use anyhow::Context;
