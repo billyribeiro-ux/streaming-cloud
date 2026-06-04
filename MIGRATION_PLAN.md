@@ -189,5 +189,40 @@ backend-rs/                      # new Cargo workspace
 
 ---
 
+## Implementation status (living)
+
+Delivered as verified, committed increments (every backend change gated by
+`cargo fmt` + `clippy -D warnings` + tests via the Rust MCP; every Svelte
+component by `svelte-check` + `svelte-autofixer`):
+
+**Backend (`backend-rs/`) — full Laravel parity, Dockerized, CI-tested:**
+- ✅ B0 foundation (Axum, config, JSON tracing, Prometheus `/metrics`, sqlx pool,
+  RFC 7807 errors, graceful shutdown, router-conflict test)
+- ✅ B1 auth (Argon2id + legacy-bcrypt rehash, Sanctum-compatible tokens, extractor)
+- ✅ B2 rooms + workspaces + organizations (CRUD + org-membership authz)
+- ✅ B2.5 room lifecycle + signaling control-plane (HS256 mint, SFU client,
+  sessions/participants); soft-cancel on delete
+- ✅ B3a chat + alerts · ✅ B3b analytics · ✅ B3c files (R2 via KAT-tested SigV4 presigner)
+- ✅ B4 Stripe billing (lean REST client + HMAC webhook verification)
+
+**Frontend (`frontend-svelte/`) — core product + settings, Dockerized, CI-tested:**
+- ✅ F0 adapter-node + SSR + cookie BFF auth · ✅ F1 register
+- ✅ F2 rooms list/create · ✅ F2.5 live WebRTC room (detail/live split, join token BFF)
+- ✅ F3 settings: profile, billing (Checkout/Portal), organization/workspaces
+
+**Infra:**
+- ✅ F4 deployable cutover: `Dockerfile.api-rs`, `Dockerfile.frontend-svelte`,
+  CI jobs (`api-rs-test`, `frontend-svelte-test`) + Docker build matrix, compose services
+
+**Residual (tracked):**
+- ⬜ Admin pages (Svelte) + backing `/v1/admin/*` endpoints (internal tooling)
+- ⬜ B5 polish: per-IP rate limiting (`tower_governor`), OpenTelemetry export,
+  `#[sqlx::test]` integration suite (needs a CI Postgres → also unlocks promoting
+  sqlx runtime queries to compile-time-checked macros)
+- ⬜ Final decommission: remove React `frontend/` + Laravel `backend/` and repoint
+  nginx once admin parity lands
+
+---
+
 ### Appendix A — source audits
 This plan is derived from three code audits performed for it: the React-frontend inventory (16 routes, hooks, stores), the Laravel-backend inventory (11 domains / ~50 endpoints / 17 tables / Sanctum / Cashier / R2), and the docs/architecture review (`README.md`, `docs/ARCHITECTURE.md`, `docs/TECH_STACK_AUDIT.md`, `docs/DATABASE_SCHEMA.md`, `DEPLOYMENT_GUIDE.md`, `IMPLEMENTATION_CHECKLIST.md`, `stack.md`). The existing `signaling-rs/` service is the reference implementation for all backend Rust idioms.
