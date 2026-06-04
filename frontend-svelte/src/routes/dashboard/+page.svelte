@@ -47,6 +47,11 @@
         <li>
           <a href="/settings/organization" class="text-brand-400 hover:text-brand-300">Organization & workspaces →</a>
         </li>
+        {#if data.user?.isAdmin}
+          <li>
+            <a href="/admin" class="text-brand-400 hover:text-brand-300">Admin console →</a>
+          </li>
+        {/if}
       </ul>
     </div>
   </div>

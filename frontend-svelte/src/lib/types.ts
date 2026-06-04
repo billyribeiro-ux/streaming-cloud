@@ -13,4 +13,5 @@ export interface SessionUser {
   avatarUrl: string | null;
   timezone: string | null;
   role: OrganizationRole;
+  isAdmin: boolean;
 }

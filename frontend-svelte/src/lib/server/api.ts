@@ -56,6 +56,7 @@ interface ApiUser {
   avatar_url?: string | null;
   timezone?: string | null;
   role?: SessionUser['role'];
+  is_admin?: boolean;
 }
 
 function toSessionUser(user: ApiUser): SessionUser {
@@ -67,7 +68,31 @@ function toSessionUser(user: ApiUser): SessionUser {
     avatarUrl: user.avatar_url ?? null,
     timezone: user.timezone ?? null,
     role: user.role ?? 'member',
+    isAdmin: user.is_admin ?? false,
   };
+}
+
+export interface AdminStats {
+  users: number;
+  organizations: number;
+  rooms: number;
+  live_rooms: number;
+}
+
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  name: string;
+  is_admin: boolean;
+  created_at: string;
+}
+
+export function adminStats(token: string): Promise<AdminStats> {
+  return request<AdminStats>('/v1/admin/stats', { token });
+}
+
+export function adminUsers(token: string, pageNumber = 1): Promise<Page<AdminUserRow>> {
+  return request<Page<AdminUserRow>>(`/v1/admin/users?page=${pageNumber}`, { token });
 }
 
 /** Updates the current user's profile. */
