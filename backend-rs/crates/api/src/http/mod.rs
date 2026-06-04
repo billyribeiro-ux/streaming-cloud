@@ -3,7 +3,10 @@
 //! Domain route groups (`/v1/auth`, `/v1/rooms`, …) are mounted here as they
 //! are implemented in later phases.
 
+mod alerts;
 mod auth;
+mod chat;
+mod guard;
 mod health;
 mod metrics;
 mod organizations;
@@ -32,6 +35,8 @@ pub fn router(state: AppState) -> Router {
         .merge(organizations::routes())
         .merge(workspaces::routes())
         .merge(rooms::routes())
+        .merge(chat::routes())
+        .merge(alerts::routes())
         .route("/metrics", get(metrics::render))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())

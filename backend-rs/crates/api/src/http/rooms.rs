@@ -19,6 +19,7 @@ use crate::db;
 use crate::db::rooms::{NewRoom, RoomUpdate};
 use crate::domain::room::{Room, RoomStatus};
 use crate::error::{AppError, AppResult};
+use crate::http::guard;
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -128,7 +129,7 @@ async fn store(
     let workspace = db::workspaces::find_by_id(&state.db, req.workspace_id)
         .await?
         .ok_or(AppError::NotFound)?;
-    ensure_member(&state, workspace.organization_id, user.id).await?;
+    guard::ensure_member(&state, workspace.organization_id, user.id).await?;
 
     let room = db::rooms::create(
         &state.db,
@@ -154,7 +155,7 @@ async fn show(
     AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Room>> {
-    Ok(Json(load_authorized(&state, id, user.id).await?))
+    Ok(Json(guard::room_authorized(&state, id, user.id).await?))
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -180,7 +181,7 @@ async fn update(
     Json(req): Json<UpdateRoom>,
 ) -> AppResult<Json<Room>> {
     req.validate()?;
-    load_authorized(&state, id, user.id).await?;
+    guard::room_authorized(&state, id, user.id).await?;
 
     let room = db::rooms::update(
         &state.db,
@@ -204,7 +205,7 @@ async fn destroy(
     AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    load_authorized(&state, id, user.id).await?;
+    guard::room_authorized(&state, id, user.id).await?;
     db::rooms::delete(&state.db, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -245,22 +246,4 @@ async fn by_status(
     Ok(Json(
         db::rooms::list(&state.db, &org_ids, Some(status), 100, 0).await?,
     ))
-}
-
-/// Ensures the user belongs to `org_id`, otherwise `403`.
-async fn ensure_member(state: &AppState, org_id: Uuid, user_id: Uuid) -> AppResult<()> {
-    if db::organizations::is_member(&state.db, org_id, user_id).await? {
-        Ok(())
-    } else {
-        Err(AppError::Forbidden)
-    }
-}
-
-/// Loads a room and authorizes the user against its organization.
-async fn load_authorized(state: &AppState, id: Uuid, user_id: Uuid) -> AppResult<Room> {
-    let room = db::rooms::find_by_id(&state.db, id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    ensure_member(state, room.organization_id, user_id).await?;
-    Ok(room)
 }
