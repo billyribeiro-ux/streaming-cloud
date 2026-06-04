@@ -42,6 +42,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw new ApiError(response.status, `API request to ${path} failed (${response.status})`);
   }
 
+  if (response.status === 204) return undefined as T;
+
   return (await response.json()) as T;
 }
 
@@ -165,6 +167,35 @@ export function createRoom(
   }
 ): Promise<Room> {
   return request<Room>('/v1/rooms', { method: 'POST', token, body });
+}
+
+export function getRoom(token: string, id: string): Promise<Room> {
+  return request<Room>(`/v1/rooms/${id}`, { token });
+}
+
+export interface JoinResult {
+  token: string;
+  signaling_url: string;
+  participant: {
+    id: string;
+    user_id: string;
+    role: string;
+    display_name: string | null;
+  };
+  room: Room;
+}
+
+/** Goes live / joins a room, returning the participant's signaling token. */
+export function joinRoom(
+  token: string,
+  id: string,
+  body: { display_name?: string } = {}
+): Promise<JoinResult> {
+  return request<JoinResult>(`/v1/rooms/${id}/join`, { method: 'POST', token, body });
+}
+
+export function leaveRoom(token: string, id: string): Promise<void> {
+  return request<void>(`/v1/rooms/${id}/leave`, { method: 'POST', token });
 }
 
 /** Resolves the current user for a token, or `null` if the token is invalid. */
