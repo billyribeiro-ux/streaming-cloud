@@ -39,3 +39,24 @@ pub async fn is_member(pool: &PgPool, organization_id: Uuid, user_id: Uuid) -> A
     .fetch_one(pool)
     .await?)
 }
+
+/// Returns the organization's Stripe customer id, if one has been created.
+pub async fn stripe_customer_id(pool: &PgPool, org_id: Uuid) -> AppResult<Option<String>> {
+    Ok(
+        sqlx::query_scalar("SELECT stripe_customer_id FROM organizations WHERE id = $1")
+            .bind(org_id)
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
+pub async fn set_stripe_customer(pool: &PgPool, org_id: Uuid, customer_id: &str) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE organizations SET stripe_customer_id = $2, updated_at = now() WHERE id = $1",
+    )
+    .bind(org_id)
+    .bind(customer_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
