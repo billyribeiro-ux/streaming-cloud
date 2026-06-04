@@ -15,7 +15,7 @@ rust-version = "1.85"
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors", "compression-full", "timeout", "request-id"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "compression-full", "timeout", "request-id", "limit"] }
 tower_governor = "0.8"
 # Serialisation
 serde = { version = "1", features = ["derive"] }
