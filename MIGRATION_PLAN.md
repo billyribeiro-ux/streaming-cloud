@@ -214,13 +214,16 @@ component by `svelte-check` + `svelte-autofixer`):
 - ✅ F4 deployable cutover: `Dockerfile.api-rs`, `Dockerfile.frontend-svelte`,
   CI jobs (`api-rs-test`, `frontend-svelte-test`) + Docker build matrix, compose services
 
+- ✅ B6 admin: `users.is_admin`, `AdminUser` guard, `/v1/admin/{stats,users}`;
+  Svelte admin console (dashboard + users) → **full feature parity reached**
+
 **Residual (tracked):**
-- ⬜ Admin pages (Svelte) + backing `/v1/admin/*` endpoints (internal tooling)
 - ⬜ B5 polish: per-IP rate limiting (`tower_governor`), OpenTelemetry export,
   `#[sqlx::test]` integration suite (needs a CI Postgres → also unlocks promoting
   sqlx runtime queries to compile-time-checked macros)
-- ⬜ Final decommission: remove React `frontend/` + Laravel `backend/` and repoint
-  nginx once admin parity lands
+- ⬜ Final decommission (deliberate cutover step): once production traffic has
+  been shifted to `api-rs` + `frontend-svelte`, remove React `frontend/` + Laravel
+  `backend/` and repoint nginx/compose/CI. Kept until then per the strangler plan.
 
 ---
 
