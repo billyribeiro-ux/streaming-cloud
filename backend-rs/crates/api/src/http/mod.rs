@@ -8,6 +8,7 @@ mod analytics;
 mod auth;
 mod billing;
 mod chat;
+mod files;
 mod guard;
 mod health;
 mod metrics;
@@ -42,6 +43,7 @@ fn api_routes() -> Router<AppState> {
         .merge(alerts::routes())
         .merge(analytics::routes())
         .merge(billing::routes())
+        .merge(files::routes())
         .route("/metrics", get(metrics::render))
 }
 

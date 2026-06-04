@@ -25,6 +25,12 @@ pub struct Config {
     pub stripe_secret: String,
     /// Stripe webhook signing secret (`whsec_…`).
     pub stripe_webhook_secret: String,
+    /// Cloudflare R2 (S3-compatible) object storage.
+    pub r2_endpoint: String,
+    pub r2_bucket: String,
+    pub r2_access_key: String,
+    pub r2_secret_key: String,
+    pub r2_region: String,
 }
 
 impl Config {
@@ -44,6 +50,11 @@ impl Config {
             app_url: env::var("APP_URL").unwrap_or_else(|_| "http://localhost:5173".to_string()),
             stripe_secret: env::var("STRIPE_SECRET").unwrap_or_default(),
             stripe_webhook_secret: env::var("STRIPE_WEBHOOK_SECRET").unwrap_or_default(),
+            r2_endpoint: env::var("R2_ENDPOINT").unwrap_or_default(),
+            r2_bucket: env::var("R2_BUCKET").unwrap_or_default(),
+            r2_access_key: env::var("R2_ACCESS_KEY_ID").unwrap_or_default(),
+            r2_secret_key: env::var("R2_SECRET_ACCESS_KEY").unwrap_or_default(),
+            r2_region: env::var("R2_REGION").unwrap_or_else(|_| "auto".to_string()),
             cors_origins: env::var("CORS_ORIGINS")
                 .map(|raw| {
                     raw.split(',')

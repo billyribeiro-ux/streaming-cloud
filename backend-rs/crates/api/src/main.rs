@@ -12,6 +12,7 @@ mod domain;
 mod error;
 mod http;
 mod observability;
+mod s3;
 mod signaling;
 mod state;
 mod stripe;

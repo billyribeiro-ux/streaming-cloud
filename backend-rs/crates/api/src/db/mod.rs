@@ -8,6 +8,7 @@
 pub mod alerts;
 pub mod analytics;
 pub mod chat;
+pub mod files;
 pub mod organizations;
 pub mod participants;
 pub mod plans;

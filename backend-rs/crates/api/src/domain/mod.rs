@@ -2,6 +2,7 @@
 
 pub mod alert;
 pub mod chat;
+pub mod file;
 pub mod organization;
 pub mod participant;
 pub mod plan;
