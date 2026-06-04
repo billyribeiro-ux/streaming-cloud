@@ -225,10 +225,19 @@ component by `svelte-check` + `svelte-autofixer`):
   only app services; SvelteKit on `:80`), Makefile, README, and stack.md.
   **`backend-rs` + `frontend-svelte` are now the sole stack.**
 
-**Optional follow-ons (not blocking):**
-- ⬜ OpenTelemetry OTLP export to the existing Jaeger
-- ⬜ CI Postgres + `#[sqlx::test]` integration suite → promote sqlx runtime
-  queries to compile-time-checked macros (offline `.sqlx` cache)
+**Polish — done:**
+- ✅ Real-Postgres integration suite (`#[sqlx::test]`, feature-gated) covering
+  auth/orgs/workspaces/rooms-lifecycle/tokens/participants/chat/subscriptions;
+  CI provisions a `postgres:18` service and runs it. Verified: 12 tests pass.
+- ✅ OpenTelemetry OTLP/HTTP span export to the bundled Jaeger (opt-in via
+  `OTEL_EXPORTER_OTLP_ENDPOINT`).
+
+**Considered & deliberately deferred:**
+- Promoting sqlx runtime queries to compile-time-checked `query!`/`query_as!`
+  macros. The integration suite already verifies every query against the real
+  migrated schema, so the correctness gain is marginal versus a large, churny
+  refactor (+ an offline `.sqlx` cache to maintain). Revisit only if a
+  build-time DB becomes part of the standard dev loop.
 
 ---
 
