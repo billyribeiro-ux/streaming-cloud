@@ -3,6 +3,7 @@
 //! Domain route groups (`/v1/auth`, `/v1/rooms`, …) are mounted here as they
 //! are implemented in later phases.
 
+mod admin;
 mod alerts;
 mod analytics;
 mod auth;
@@ -44,6 +45,7 @@ fn api_routes() -> Router<AppState> {
         .merge(analytics::routes())
         .merge(billing::routes())
         .merge(files::routes())
+        .merge(admin::routes())
         .route("/metrics", get(metrics::render))
 }
 

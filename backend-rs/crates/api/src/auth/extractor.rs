@@ -35,6 +35,25 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
+/// Authorization marker: extraction succeeds only for a platform administrator
+/// (an authenticated user whose `is_admin` flag is set), otherwise `403`.
+pub struct AdminUser;
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let AuthUser(user) = AuthUser::from_request_parts(parts, state).await?;
+        if !user.is_admin {
+            return Err(AppError::Forbidden);
+        }
+        Ok(AdminUser)
+    }
+}
+
 /// Extracts the bearer credential from the `Authorization` header, if present.
 pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     headers

@@ -30,7 +30,7 @@ pub struct ProfileUpdate {
 pub async fn find_by_email(pool: &PgPool, email: &str) -> AppResult<Option<User>> {
     Ok(sqlx::query_as::<_, User>(
         "SELECT id, email, password, name, display_name, avatar_url, timezone, \
-                email_verified_at, last_login_at, created_at, updated_at \
+                email_verified_at, last_login_at, created_at, updated_at, is_admin \
          FROM users WHERE email = $1 AND deleted_at IS NULL",
     )
     .bind(email)
@@ -41,7 +41,7 @@ pub async fn find_by_email(pool: &PgPool, email: &str) -> AppResult<Option<User>
 pub async fn find_by_id(pool: &PgPool, id: Uuid) -> AppResult<Option<User>> {
     Ok(sqlx::query_as::<_, User>(
         "SELECT id, email, password, name, display_name, avatar_url, timezone, \
-                email_verified_at, last_login_at, created_at, updated_at \
+                email_verified_at, last_login_at, created_at, updated_at, is_admin \
          FROM users WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
@@ -70,7 +70,7 @@ pub async fn register(pool: &PgPool, new: NewUser) -> AppResult<User> {
         "INSERT INTO users (id, email, password, name, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, now(), now()) \
          RETURNING id, email, password, name, display_name, avatar_url, timezone, \
-                   email_verified_at, last_login_at, created_at, updated_at",
+                   email_verified_at, last_login_at, created_at, updated_at, is_admin",
     )
     .bind(user_id)
     .bind(&new.email)
@@ -115,7 +115,7 @@ pub async fn update_profile(pool: &PgPool, id: Uuid, update: ProfileUpdate) -> A
             updated_at = now() \
          WHERE id = $1 AND deleted_at IS NULL \
          RETURNING id, email, password, name, display_name, avatar_url, timezone, \
-                   email_verified_at, last_login_at, created_at, updated_at",
+                   email_verified_at, last_login_at, created_at, updated_at, is_admin",
     )
     .bind(id)
     .bind(update.name)
