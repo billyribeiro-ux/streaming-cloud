@@ -50,5 +50,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
+opentelemetry = "0.32"
+opentelemetry_sdk = "0.32"
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "http-proto", "reqwest-client"] }
+tracing-opentelemetry = "0.33"
 # Config
 dotenvy = "0.15"
