@@ -4,6 +4,8 @@ pub mod alert;
 pub mod chat;
 pub mod organization;
 pub mod participant;
+pub mod plan;
 pub mod room;
+pub mod subscription;
 pub mod user;
 pub mod workspace;

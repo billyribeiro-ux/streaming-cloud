@@ -14,6 +14,7 @@ mod http;
 mod observability;
 mod signaling;
 mod state;
+mod stripe;
 mod util;
 
 use std::net::SocketAddr;

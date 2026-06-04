@@ -19,6 +19,12 @@ pub struct Config {
     pub signaling_secret: String,
     /// HS256 key used to mint short-lived client signaling tokens.
     pub jwt_secret: String,
+    /// Public base URL of the frontend (for Stripe redirect URLs).
+    pub app_url: String,
+    /// Stripe secret API key.
+    pub stripe_secret: String,
+    /// Stripe webhook signing secret (`whsec_…`).
+    pub stripe_webhook_secret: String,
 }
 
 impl Config {
@@ -35,6 +41,9 @@ impl Config {
             signaling_secret: env::var("SIGNALING_SECRET")
                 .unwrap_or_else(|_| "dev-signaling-secret".to_string()),
             jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "dev-jwt-secret".to_string()),
+            app_url: env::var("APP_URL").unwrap_or_else(|_| "http://localhost:5173".to_string()),
+            stripe_secret: env::var("STRIPE_SECRET").unwrap_or_default(),
+            stripe_webhook_secret: env::var("STRIPE_WEBHOOK_SECRET").unwrap_or_default(),
             cors_origins: env::var("CORS_ORIGINS")
                 .map(|raw| {
                     raw.split(',')
