@@ -56,6 +56,7 @@ interface ApiUser {
   avatar_url?: string | null;
   timezone?: string | null;
   role?: SessionUser['role'];
+  is_admin?: boolean;
 }
 
 function toSessionUser(user: ApiUser): SessionUser {
@@ -67,7 +68,31 @@ function toSessionUser(user: ApiUser): SessionUser {
     avatarUrl: user.avatar_url ?? null,
     timezone: user.timezone ?? null,
     role: user.role ?? 'member',
+    isAdmin: user.is_admin ?? false,
   };
+}
+
+export interface AdminStats {
+  users: number;
+  organizations: number;
+  rooms: number;
+  live_rooms: number;
+}
+
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  name: string;
+  is_admin: boolean;
+  created_at: string;
+}
+
+export function adminStats(token: string): Promise<AdminStats> {
+  return request<AdminStats>('/v1/admin/stats', { token });
+}
+
+export function adminUsers(token: string, pageNumber = 1): Promise<Page<AdminUserRow>> {
+  return request<Page<AdminUserRow>>(`/v1/admin/users?page=${pageNumber}`, { token });
 }
 
 /** Updates the current user's profile. */
@@ -157,6 +182,51 @@ export function listWorkspaces(token: string): Promise<Workspace[]> {
 
 export function listOrganizations(token: string): Promise<Organization[]> {
   return request<Organization[]>('/v1/organizations', { token });
+}
+
+export interface Plan {
+  id: string;
+  name: string;
+  display_name: string;
+  price_monthly_cents: number;
+  price_yearly_cents: number;
+  max_workspaces: number;
+  max_rooms: number;
+  max_hosts_per_room: number;
+  max_viewers_per_room: number;
+  max_storage_gb: number;
+  features: Record<string, unknown>;
+}
+
+export interface SubscriptionInfo {
+  subscription: { status: string; current_period_end: string | null } | null;
+  plan: Plan | null;
+  has_active_subscription: boolean;
+}
+
+export function listPlans(token: string): Promise<Plan[]> {
+  return request<Plan[]>('/v1/plans', { token });
+}
+
+export function getSubscription(token: string, organizationId: string): Promise<SubscriptionInfo> {
+  return request<SubscriptionInfo>(
+    `/v1/billing/subscription?organization_id=${encodeURIComponent(organizationId)}`,
+    { token }
+  );
+}
+
+export function startCheckout(
+  token: string,
+  body: { organization_id: string; plan_id: string; billing_period: 'monthly' | 'yearly' }
+): Promise<{ checkout_url: string }> {
+  return request<{ checkout_url: string }>('/v1/billing/subscribe', { method: 'POST', token, body });
+}
+
+export function billingPortal(
+  token: string,
+  body: { organization_id: string }
+): Promise<{ portal_url: string }> {
+  return request<{ portal_url: string }>('/v1/billing/portal', { method: 'POST', token, body });
 }
 
 export function createWorkspace(

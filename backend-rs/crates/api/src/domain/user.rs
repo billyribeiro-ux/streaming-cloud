@@ -25,6 +25,7 @@ pub struct User {
     pub last_login_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub is_admin: bool,
 }
 
 /// The client-safe projection of a [`User`] (no credentials).
@@ -36,6 +37,7 @@ pub struct UserResponse {
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
     pub timezone: Option<String>,
+    pub is_admin: bool,
 }
 
 impl From<User> for UserResponse {
@@ -47,6 +49,7 @@ impl From<User> for UserResponse {
             display_name: user.display_name,
             avatar_url: user.avatar_url,
             timezone: user.timezone,
+            is_admin: user.is_admin,
         }
     }
 }

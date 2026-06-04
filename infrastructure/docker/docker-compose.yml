@@ -30,62 +30,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ===========================================================================
-  # Laravel Backend API
-  # ===========================================================================
-  backend:
-    build:
-      context: ../../backend
-      dockerfile: ../infrastructure/docker/Dockerfile.backend
-    container_name: tradingroom-backend
-    restart: unless-stopped
-    working_dir: /var/www
-    ports:
-      - "8000:8000"
-    stop_grace_period: 30s
-    environment:
-      - APP_ENV=${APP_ENV:-development}
-      - APP_KEY=${APP_KEY}
-      - APP_DEBUG=${APP_DEBUG:-true}
-      - APP_URL=${APP_URL}
-      - LOG_CHANNEL=stderr
-      - DB_CONNECTION=pgsql
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
-      - DB_DATABASE=${DB_NAME}
-      - DB_USERNAME=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - STRIPE_KEY=${STRIPE_KEY}
-      - STRIPE_SECRET=${STRIPE_SECRET}
-      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
-      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
-      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
-      - R2_BUCKET=${R2_BUCKET}
-      - R2_ENDPOINT=${R2_ENDPOINT}
-      - SIGNALING_URL=${SIGNALING_URL}
-      - SIGNALING_SECRET=${SIGNALING_SECRET}
-    depends_on:
-      - redis
-    volumes:
-      - backend-storage:/var/www/storage
-    networks:
-      - tradingroom-network
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # ===========================================================================
   # Node.js Signaling Server
@@ -178,42 +122,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # ===========================================================================
-  # React Frontend (built and served by nginx)
-  # ===========================================================================
-  frontend:
-    build:
-      context: ../../frontend
-      dockerfile: ../infrastructure/docker/Dockerfile.frontend
-      args:
-        - VITE_API_URL=${API_URL}
-        - VITE_SIGNALING_URL=${SIGNALING_WS_URL}
-    container_name: tradingroom-frontend
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - backend
-      - signaling
-    networks:
-      - tradingroom-network
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
-        reservations:
-          cpus: '0.1'
-          memory: 64M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # ===========================================================================
   # Redis Cache & Message Queue
@@ -265,76 +173,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # ===========================================================================
-  # Laravel Horizon (Queue Worker)
-  # ===========================================================================
-  horizon:
-    build:
-      context: ../../backend
-      dockerfile: ../infrastructure/docker/Dockerfile.backend
-    container_name: tradingroom-horizon
-    restart: unless-stopped
-    command: php artisan horizon
-    stop_grace_period: 60s
-    environment:
-      - APP_ENV=${APP_ENV:-development}
-      - APP_KEY=${APP_KEY}
-      - DB_CONNECTION=pgsql
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
-      - DB_DATABASE=${DB_NAME}
-      - DB_USERNAME=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-    depends_on:
-      - redis
-      - backend
-    networks:
-      - tradingroom-network
 
-  # ===========================================================================
-  # Laravel Scheduler
-  # ===========================================================================
-  scheduler:
-    build:
-      context: ../../backend
-      dockerfile: ../infrastructure/docker/Dockerfile.backend
-    container_name: tradingroom-scheduler
-    restart: unless-stopped
-    command: sh -c "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
-    environment:
-      - APP_ENV=${APP_ENV:-development}
-      - APP_KEY=${APP_KEY}
-      - DB_CONNECTION=pgsql
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
-      - DB_DATABASE=${DB_NAME}
-      - DB_USERNAME=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_HOST=redis
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
-        reservations:
-          cpus: '0.1'
-          memory: 64M
-    depends_on:
-      - backend
-    networks:
-      - tradingroom-network
 
   # ===========================================================================
   # Recording Service
@@ -388,6 +227,76 @@ services:
       - tradingroom-network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:14269/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Rust API (Axum/Tokio/sqlx) — the Laravel backend rewrite
+  # ===========================================================================
+  api-rs:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.api-rs
+    container_name: tradingroom-api-rs
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    stop_grace_period: 30s
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8080
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-tradingroom_redis}@redis:6379
+      - SIGNALING_URL=${SIGNALING_URL:-http://signaling:3000}
+      - SIGNALING_SECRET=${SIGNALING_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - APP_URL=${APP_URL}
+      - STRIPE_SECRET=${STRIPE_SECRET}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_BUCKET=${R2_BUCKET}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - RUST_LOG=info
+      # Export traces to the bundled Jaeger via OTLP/HTTP (4318).
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+    depends_on:
+      - redis
+      - jaeger
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # SvelteKit Frontend (adapter-node, SSR) — the React frontend rewrite
+  # ===========================================================================
+  frontend-svelte:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.frontend-svelte
+    container_name: tradingroom-frontend-svelte
+    restart: unless-stopped
+    ports:
+      - "80:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      # Server-side BFF target (the Rust API) and the public signaling WS origin.
+      - API_URL=http://api-rs:8080
+      - PUBLIC_SIGNALING_URL=${SIGNALING_WS_URL}
+    depends_on:
+      - api-rs
+    networks:
+      - tradingroom-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3

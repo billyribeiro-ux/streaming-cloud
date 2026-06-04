@@ -18,98 +18,6 @@ env:
 
 jobs:
   # ===========================================================================
-  # Backend Tests & Lint
-  # ===========================================================================
-  backend-test:
-    name: Backend Tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: tradingroom_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:8-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.5'
-          extensions: pdo, pdo_pgsql, redis, gd, zip, intl, mbstring, bcmath
-          coverage: xdebug
-
-      - name: Get Composer cache directory
-        id: composer-cache
-        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
-
-      - name: Cache Composer dependencies
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
-          restore-keys: ${{ runner.os }}-composer-
-
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Copy environment file
-        run: cp .env.example .env
-
-      - name: Generate application key
-        run: php artisan key:generate
-
-      - name: Run PHPStan
-        run: ./vendor/bin/phpstan analyse --memory-limit=2G
-
-      - name: Run Pint (code style)
-        run: ./vendor/bin/pint --test
-
-      - name: Run tests
-        run: ./vendor/bin/pest --coverage --coverage-clover=coverage.xml
-        env:
-          DB_CONNECTION: pgsql
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_DATABASE: tradingroom_test
-          DB_USERNAME: test
-          DB_PASSWORD: test
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v6
-        with:
-          file: backend/coverage.xml
-          flags: backend
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-  # ===========================================================================
   # Signaling Server Tests
   # ===========================================================================
   signaling-test:
@@ -201,42 +109,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
 
   # ===========================================================================
-  # Frontend Tests
-  # ===========================================================================
-  frontend-test:
-    name: Frontend Tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24.16.0'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: Run tests
-        run: npm run test:coverage
-
-      - name: Build
-        run: npm run build
-        env:
-          VITE_API_URL: https://api.example.com
-          VITE_SIGNALING_URL: wss://signaling.example.com
-
-  # ===========================================================================
   # Rust Signaling Server Tests
   # ===========================================================================
   signaling-rs-test:
@@ -297,11 +169,91 @@ jobs:
         run: npx tsc --noEmit
 
   # ===========================================================================
+  # Rust API (Axum/Tokio/sqlx) Tests
+  # ===========================================================================
+  api-rs-test:
+    name: Rust API Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-rs
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tradingroom
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend-rs
+
+      - name: Run cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: Run cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests (unit + integration against Postgres)
+        run: cargo test --features integration
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/tradingroom
+
+  # ===========================================================================
+  # SvelteKit Frontend Tests
+  # ===========================================================================
+  frontend-svelte-test:
+    name: SvelteKit Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-svelte
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.16.0'
+          cache: 'npm'
+          cache-dependency-path: frontend-svelte/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run svelte-check
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+  # ===========================================================================
   # Build & Push Docker Images
   # ===========================================================================
   build:
     name: Build Docker Images
-    needs: [backend-test, signaling-test, sfu-test, frontend-test, signaling-rs-test, recorder-test]
+    needs: [signaling-test, sfu-test, signaling-rs-test, recorder-test, api-rs-test, frontend-svelte-test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
@@ -312,18 +264,18 @@ jobs:
     strategy:
       matrix:
         include:
-          - service: backend
-            dockerfile: infrastructure/docker/Dockerfile.backend
-            context: backend
           - service: signaling
             dockerfile: infrastructure/docker/Dockerfile.signaling
             context: signaling
           - service: sfu
             dockerfile: infrastructure/docker/Dockerfile.sfu
             context: sfu
-          - service: frontend
-            dockerfile: infrastructure/docker/Dockerfile.frontend
-            context: frontend
+          - service: api-rs
+            dockerfile: infrastructure/docker/Dockerfile.api-rs
+            context: .
+          - service: frontend-svelte
+            dockerfile: infrastructure/docker/Dockerfile.frontend-svelte
+            context: .
 
     steps:
       - name: Checkout code

@@ -12,10 +12,14 @@ mod domain;
 mod error;
 mod http;
 mod observability;
+mod s3;
 mod signaling;
 mod state;
 mod stripe;
 mod util;
+
+#[cfg(all(test, feature = "integration"))]
+mod tests_integration;
 
 use std::net::SocketAddr;
 

@@ -5,9 +5,11 @@
 //! database. Once CI provisions a build-time Postgres (or an offline `.sqlx`
 //! cache), these can be promoted to `query!`/`query_as!` for static checking.
 
+pub mod admin;
 pub mod alerts;
 pub mod analytics;
 pub mod chat;
+pub mod files;
 pub mod organizations;
 pub mod participants;
 pub mod plans;

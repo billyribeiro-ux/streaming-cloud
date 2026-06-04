@@ -5,4 +5,4 @@ pub mod extractor;
 pub mod password;
 pub mod token;
 
-pub use extractor::AuthUser;
+pub use extractor::{AdminUser, AuthUser};

@@ -17,7 +17,11 @@
 
 ---
 
-## Backend — Laravel SaaS API (`backend/`)
+## Backend — Laravel SaaS API (`backend/`) — ⛔ DECOMMISSIONED
+
+> Replaced by the Rust API (`backend-rs/`, see below). Retained here only as a
+> record of the original dependency pinning. The `backend/` directory has been
+> removed.
 
 PHP **^8.5** · Laravel **13**
 
@@ -56,7 +60,11 @@ PHP **^8.5** · Laravel **13**
 
 ---
 
-## React Frontend (`frontend/`)
+## React Frontend (`frontend/`) — ⛔ DECOMMISSIONED
+
+> Replaced by the SvelteKit frontend (`frontend-svelte/`, below). Retained here
+> only as a record of the original dependency pinning. The `frontend/` directory
+> has been removed.
 
 Node **24.16.0** · React **19** · Vite **8** · TypeScript **6**
 
@@ -117,6 +125,7 @@ Node **24.16.0** · Svelte **5** · SvelteKit **2** · Vite **8** · TypeScript 
 | Package | Constraint |
 |---------|------------|
 | mediasoup-client | ^3.20.0 |
+| phosphor-svelte | ^3.1.0 (icons — bundled components, no external SVG fetch) |
 | @sveltejs/adapter-static | ^3.0.10 |
 | @sveltejs/kit | ^2.63.0 |
 | @sveltejs/vite-plugin-svelte | ^7.1.2 |
@@ -264,13 +273,45 @@ Node **24.16.0** · `engines.node >=24.16.0`
 
 ---
 
+## Backend API — Rust (`backend-rs/`) — Laravel rewrite
+
+Axum + Tokio + sqlx Cargo workspace; the active rewrite of the Laravel API
+(strangler migration). Full endpoint parity: auth, organizations, workspaces,
+rooms (CRUD + lifecycle + signaling control-plane), chat, alerts, analytics,
+billing (Stripe), files (R2), health, metrics.
+
+| Crate | Version |
+|-------|---------|
+| axum | 0.8 |
+| tokio | 1 (full) |
+| tower-http | 0.6 (trace, cors, compression, timeout) |
+| sqlx | 0.9 (postgres, tls-rustls, uuid, chrono, json) |
+| serde / serde_json | 1 |
+| uuid | 1 · chrono | 0.4 |
+| argon2 | 0.5 (+ password-hash getrandom) · bcrypt | 0.19 (legacy verify) |
+| jsonwebtoken | 10 · sha2 | 0.10 · hmac | 0.12 · rand | 0.9 |
+| reqwest | 0.13 (json, form, rustls) — Stripe + SFU control-plane |
+| garde | 0.23 (derive, email) — validation |
+| thiserror | 2 · anyhow | 1 |
+| tracing | 0.1 · tracing-subscriber | 0.3 · metrics-exporter-prometheus | 0.18 |
+| dotenvy | 0.15 |
+
+Notable L7 choices: Sanctum-compatible tokens; Argon2id with transparent
+legacy-bcrypt rehash; a lean Stripe REST client + HMAC webhook verification
+(no `async-stripe`); a KAT-tested SigV4 presigner for R2 (no `aws-sdk-s3`);
+RFC 7807 problem+json errors; a router-conflict test; soft-cancel for rooms.
+
+---
+
 ## Infrastructure — Docker Base Images
 
 | Image | Tag | Used by |
 |-------|-----|---------|
-| node | **24.16.0-alpine** | frontend, signaling, recorder builds |
+| node | **24.16.0-alpine** | frontend, signaling, recorder, **frontend-svelte** builds |
 | node | **24.16.0-bookworm** / **24.16.0-bookworm-slim** | sfu (native mediasoup build) |
-| php | **8.5-fpm-alpine** | backend |
+| rust | **1-bookworm** | **api-rs** build stage |
+| debian | **bookworm-slim** | **api-rs** runtime |
+| php | **8.5-fpm-alpine** | backend (Laravel, being decommissioned) |
 | composer | **2** | backend build stage |
 | nginx | **alpine** (1.31 mainline) | frontend serve, backend |
 | postgres | **18-alpine** | CI test DB |

@@ -14,6 +14,7 @@ path = "src/main.rs"
 axum.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
+tower_governor.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
@@ -33,4 +34,13 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 metrics-exporter-prometheus.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+tracing-opentelemetry.workspace = true
 dotenvy.workspace = true
+
+[features]
+# Enables the database integration suite (`#[sqlx::test]`); requires a reachable
+# Postgres via DATABASE_URL. Off by default so unit tests run without a DB.
+integration = []

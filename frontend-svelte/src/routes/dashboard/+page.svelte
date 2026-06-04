@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ForwardLink from '$lib/components/ForwardLink.svelte';
   import { enhance } from '$app/forms';
   import type { PageData } from './$types';
 
@@ -33,14 +34,25 @@
       <h2 class="mb-2 text-lg font-semibold text-white">Quick links</h2>
       <ul class="space-y-2 text-sm">
         <li>
-          <a href="/rooms" class="text-brand-400 hover:text-brand-300">Browse your rooms →</a>
+          <ForwardLink href="/rooms" label="Browse your rooms" />
         </li>
         <li>
-          <a href="/rooms/new" class="text-brand-400 hover:text-brand-300">Create a room →</a>
+          <ForwardLink href="/rooms/new" label="Create a room" />
         </li>
         <li>
-          <a href="/settings/profile" class="text-brand-400 hover:text-brand-300">Edit your profile →</a>
+          <ForwardLink href="/settings/profile" label="Edit your profile" />
         </li>
+        <li>
+          <ForwardLink href="/settings/billing" label="Billing & plans" />
+        </li>
+        <li>
+          <ForwardLink href="/settings/organization" label="Organization & workspaces" />
+        </li>
+        {#if data.user?.isAdmin}
+          <li>
+            <ForwardLink href="/admin" label="Admin console" />
+          </li>
+        {/if}
       </ul>
     </div>
   </div>
