@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = ["crates/api"]
+
+[workspace.package]
+edition = "2021"
+license = "proprietary"
+rust-version = "1.85"
+
+# Forward-looking shared dependency set for the whole backend workspace.
+# Members opt in via `<crate>.workspace = true`. Entries not referenced by any
+# member are not compiled, so listing the full target set here is free.
+[workspace.dependencies]
+# Web / async
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "compression-full", "timeout", "request-id"] }
+tower_governor = "0.8"
+# Serialisation
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Database
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "macros"] }
+# Types
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+# Auth
+argon2 = "0.5"
+# Enables `OsRng` for Argon2 salt generation (argon2's default `rand` feature
+# only pulls `rand_core`, not the `getrandom` backend).
+password-hash = { version = "0.5", features = ["getrandom"] }
+bcrypt = "0.19"
+jsonwebtoken = "10"
+sha2 = "0.10"
+rand = "0.9"
+# Billing / storage / jobs
+async-stripe = { version = "0.41", features = ["runtime-tokio-hyper-rustls"] }
+aws-sdk-s3 = "1"
+apalis = "0.7"
+redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2"] }
+# Validation / errors
+garde = { version = "0.23", features = ["derive", "email"] }
+thiserror = "2"
+anyhow = "1"
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
+# Config
+dotenvy = "0.15"

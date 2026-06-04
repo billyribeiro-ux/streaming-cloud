@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "svelte": {
+      "command": "npx",
+      "args": ["-y", "@sveltejs/mcp"]
+    },
+    "rust": {
+      "command": "rust-mcp-server",
+      "args": ["--log-level", "warn"]
+    }
+  }
+}
