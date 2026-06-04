@@ -89,6 +89,84 @@ export async function register(
   return { token: data.token, user: toSessionUser(data.user) };
 }
 
+// ---------------------------------------------------------------------------
+// Rooms / workspaces / organizations
+// ---------------------------------------------------------------------------
+
+export type RoomStatus = 'scheduled' | 'live' | 'ended' | 'cancelled';
+
+export interface Room {
+  id: string;
+  workspace_id: string;
+  organization_id: string;
+  name: string;
+  description: string | null;
+  slug: string;
+  status: RoomStatus;
+  scheduled_start: string | null;
+  recording_enabled: boolean;
+  is_public: boolean;
+  created_at: string;
+}
+
+export interface Workspace {
+  id: string;
+  organization_id: string;
+  name: string;
+  description: string | null;
+  slug: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface Page<T> {
+  data: T[];
+  meta: { page: number; per_page: number; total: number };
+}
+
+export function listRooms(
+  token: string,
+  params: { page?: number; status?: RoomStatus } = {}
+): Promise<Page<Room>> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set('page', String(params.page));
+  if (params.status) qs.set('status', params.status);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return request<Page<Room>>(`/v1/rooms${suffix}`, { token });
+}
+
+export function listWorkspaces(token: string): Promise<Workspace[]> {
+  return request<Workspace[]>('/v1/workspaces', { token });
+}
+
+export function listOrganizations(token: string): Promise<Organization[]> {
+  return request<Organization[]>('/v1/organizations', { token });
+}
+
+export function createWorkspace(
+  token: string,
+  body: { organization_id: string; name: string; description?: string }
+): Promise<Workspace> {
+  return request<Workspace>('/v1/workspaces', { method: 'POST', token, body });
+}
+
+export function createRoom(
+  token: string,
+  body: {
+    workspace_id: string;
+    name: string;
+    description?: string;
+    is_public?: boolean;
+    recording_enabled?: boolean;
+  }
+): Promise<Room> {
+  return request<Room>('/v1/rooms', { method: 'POST', token, body });
+}
+
 /** Resolves the current user for a token, or `null` if the token is invalid. */
 export async function fetchCurrentUser(token: string): Promise<SessionUser | null> {
   try {

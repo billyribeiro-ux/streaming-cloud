@@ -30,10 +30,15 @@
     </header>
 
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-8">
-      <p class="text-slate-400">
-        Your rooms, workspaces, and analytics will appear here as the migration
-        progresses (phases F2–F3).
-      </p>
+      <h2 class="mb-2 text-lg font-semibold text-white">Quick links</h2>
+      <ul class="space-y-2 text-sm">
+        <li>
+          <a href="/rooms" class="text-brand-400 hover:text-brand-300">Browse your rooms →</a>
+        </li>
+        <li>
+          <a href="/rooms/new" class="text-brand-400 hover:text-brand-300">Create a room →</a>
+        </li>
+      </ul>
     </div>
   </div>
 </div>
