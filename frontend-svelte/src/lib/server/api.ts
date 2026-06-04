@@ -54,6 +54,7 @@ interface ApiUser {
   name: string;
   display_name?: string | null;
   avatar_url?: string | null;
+  timezone?: string | null;
   role?: SessionUser['role'];
 }
 
@@ -64,8 +65,17 @@ function toSessionUser(user: ApiUser): SessionUser {
     name: user.name,
     displayName: user.display_name ?? null,
     avatarUrl: user.avatar_url ?? null,
+    timezone: user.timezone ?? null,
     role: user.role ?? 'member',
   };
+}
+
+/** Updates the current user's profile. */
+export function updateProfile(
+  token: string,
+  body: { name?: string; display_name?: string; avatar_url?: string; timezone?: string }
+): Promise<{ user: ApiUser }> {
+  return request<{ user: ApiUser }>('/v1/auth/profile', { method: 'PUT', token, body });
 }
 
 export async function login(

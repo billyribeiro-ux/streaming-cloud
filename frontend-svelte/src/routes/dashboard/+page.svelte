@@ -38,6 +38,9 @@
         <li>
           <a href="/rooms/new" class="text-brand-400 hover:text-brand-300">Create a room →</a>
         </li>
+        <li>
+          <a href="/settings/profile" class="text-brand-400 hover:text-brand-300">Edit your profile →</a>
+        </li>
       </ul>
     </div>
   </div>

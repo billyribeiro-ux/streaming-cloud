@@ -11,5 +11,6 @@ export interface SessionUser {
   name: string;
   displayName: string | null;
   avatarUrl: string | null;
+  timezone: string | null;
   role: OrganizationRole;
 }
