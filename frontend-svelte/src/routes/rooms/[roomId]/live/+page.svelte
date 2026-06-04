@@ -7,6 +7,7 @@
 -->
 
 <script lang="ts">
+  import X from 'phosphor-svelte/lib/X';
   import { onDestroy, onMount } from 'svelte';
   import { page } from '$app/state';
   import { env } from '$env/dynamic/public';
@@ -421,7 +422,7 @@
             class="text-slate-400 hover:text-white"
             aria-label="Close participant list"
           >
-            ✕
+            <X size={18} weight="bold" />
           </button>
         </div>
 

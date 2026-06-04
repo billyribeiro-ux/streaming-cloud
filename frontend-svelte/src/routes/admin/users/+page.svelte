@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BackLink from '$lib/components/BackLink.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -14,7 +15,7 @@
 
 <div class="min-h-screen bg-slate-950 px-6 py-10">
   <div class="mx-auto max-w-4xl">
-    <a href="/admin" class="text-sm text-slate-400 hover:text-slate-300">← Admin</a>
+    <BackLink href="/admin" label="Admin" />
     <h1 class="mb-1 mt-2 text-2xl font-bold text-white">Users</h1>
     <p class="mb-6 text-sm text-slate-400">{data.meta.total} total</p>
 

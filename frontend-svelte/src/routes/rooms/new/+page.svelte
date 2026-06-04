@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BackLink from '$lib/components/BackLink.svelte';
   import { enhance } from '$app/forms';
   import type { ActionData, PageData } from './$types';
 
@@ -20,7 +21,7 @@
 
 <div class="min-h-screen bg-slate-950 px-6 py-10">
   <div class="mx-auto max-w-xl">
-    <a href="/rooms" class="text-sm text-slate-400 hover:text-slate-300">← Back to rooms</a>
+    <BackLink href="/rooms" label="Back to rooms" />
     <h1 class="mb-6 mt-2 text-2xl font-bold text-white">New room</h1>
 
     {#if form?.error}

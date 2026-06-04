@@ -1,4 +1,6 @@
 <script lang="ts">
+  import BackLink from '$lib/components/BackLink.svelte';
+  import ForwardLink from '$lib/components/ForwardLink.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -17,7 +19,7 @@
 
 <div class="min-h-screen bg-slate-950 px-6 py-10">
   <div class="mx-auto max-w-4xl">
-    <a href="/dashboard" class="text-sm text-slate-400 hover:text-slate-300">← Dashboard</a>
+    <BackLink href="/dashboard" label="Dashboard" />
     <h1 class="mb-6 mt-2 text-2xl font-bold text-white">Admin</h1>
 
     <div class="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -29,6 +31,6 @@
       {/each}
     </div>
 
-    <a href="/admin/users" class="text-brand-400 hover:text-brand-300">Manage users →</a>
+    <ForwardLink href="/admin/users" label="Manage users" />
   </div>
 </div>
