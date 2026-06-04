@@ -41,6 +41,9 @@
         <li>
           <a href="/settings/profile" class="text-brand-400 hover:text-brand-300">Edit your profile →</a>
         </li>
+        <li>
+          <a href="/settings/billing" class="text-brand-400 hover:text-brand-300">Billing & plans →</a>
+        </li>
       </ul>
     </div>
   </div>

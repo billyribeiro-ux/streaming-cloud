@@ -159,6 +159,51 @@ export function listOrganizations(token: string): Promise<Organization[]> {
   return request<Organization[]>('/v1/organizations', { token });
 }
 
+export interface Plan {
+  id: string;
+  name: string;
+  display_name: string;
+  price_monthly_cents: number;
+  price_yearly_cents: number;
+  max_workspaces: number;
+  max_rooms: number;
+  max_hosts_per_room: number;
+  max_viewers_per_room: number;
+  max_storage_gb: number;
+  features: Record<string, unknown>;
+}
+
+export interface SubscriptionInfo {
+  subscription: { status: string; current_period_end: string | null } | null;
+  plan: Plan | null;
+  has_active_subscription: boolean;
+}
+
+export function listPlans(token: string): Promise<Plan[]> {
+  return request<Plan[]>('/v1/plans', { token });
+}
+
+export function getSubscription(token: string, organizationId: string): Promise<SubscriptionInfo> {
+  return request<SubscriptionInfo>(
+    `/v1/billing/subscription?organization_id=${encodeURIComponent(organizationId)}`,
+    { token }
+  );
+}
+
+export function startCheckout(
+  token: string,
+  body: { organization_id: string; plan_id: string; billing_period: 'monthly' | 'yearly' }
+): Promise<{ checkout_url: string }> {
+  return request<{ checkout_url: string }>('/v1/billing/subscribe', { method: 'POST', token, body });
+}
+
+export function billingPortal(
+  token: string,
+  body: { organization_id: string }
+): Promise<{ portal_url: string }> {
+  return request<{ portal_url: string }>('/v1/billing/portal', { method: 'POST', token, body });
+}
+
 export function createWorkspace(
   token: string,
   body: { organization_id: string; name: string; description?: string }
