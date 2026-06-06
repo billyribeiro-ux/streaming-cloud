@@ -33,6 +33,10 @@ There are **two kinds of "subscriptions"** here:
 > **Minimum to run end-to-end:** Neon + Stripe + Cloudflare R2 + a TURN server +
 > one VPS (with Redis) + a domain. Estimated base: **~$60–85/month** plus Stripe
 > fees.
+>
+> **Realtime media plane** (self-hosted SFU + TURN on Hetzner — server specs,
+> ports, low-latency tuning, the `MEDIASOUP_ANNOUNCED_IP`/port fixes): see
+> **[`docs/MEDIA_INFRASTRUCTURE.md`](docs/MEDIA_INFRASTRUCTURE.md)**.
 
 ### 1.1 What each service maps to (env vars)
 
