@@ -524,12 +524,12 @@ SIGNALING_PORT=3000
 # =============================================================================
 SFU_NODE_ID=sfu-1
 SFU_NODES=sfu-1.tradingroom.io:4000
-SFU_ANNOUNCED_IP=xx.xx.xx.xx  # Your SFU server IP
+SFU_ANNOUNCED_IP=xx.xx.xx.xx  # Your SFU server's PUBLIC IPv4 (clients connect here for media)
 SFU_PORT=4000
 
-# Mediasoup RTC Ports
-RTC_MIN_PORT=10000
-RTC_MAX_PORT=10100
+# Mediasoup RTC media port range (UDP primary + TCP fallback) — open on the SFU host.
+RTC_MIN_PORT=40000
+RTC_MAX_PORT=49999
 
 # =============================================================================
 # TURN Server Configuration
@@ -1074,9 +1074,9 @@ We'll use Let's Encrypt with Certbot for free SSL certificates.
    PORT=4000
    NODE_ID=sfu-1
    REDIS_URL=redis://yy.yy.yy.yy:6379
-   RTC_MIN_PORT=10000
-   RTC_MAX_PORT=10100
-   ANNOUNCED_IP=$(curl -s ifconfig.me)
+   MEDIASOUP_RTC_MIN_PORT=40000
+   MEDIASOUP_RTC_MAX_PORT=49999
+   MEDIASOUP_ANNOUNCED_IP=$(curl -s ifconfig.me)
    MEDIASOUP_LOG_LEVEL=warn
    EOF
    ```

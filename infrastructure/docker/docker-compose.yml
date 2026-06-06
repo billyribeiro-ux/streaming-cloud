@@ -83,24 +83,31 @@ services:
       dockerfile: ../infrastructure/docker/Dockerfile.sfu
     container_name: tradingroom-sfu
     restart: unless-stopped
-    ports:
-      - "4000:4000"
-      - "10000-10100:10000-10100/udp"
-      - "10000-10100:10000-10100/tcp"
+    # Host networking: the SFU binds its RTC UDP/TCP ports directly on the host
+    # for the lowest-latency media path (no Docker NAT, no per-port userland
+    # proxy) and so the WebRTC announced-IP candidates are reachable. The SFU is
+    # meant to run on its own dedicated box in production — see
+    # docs/MEDIA_INFRASTRUCTURE.md. Control-plane HTTP is on host port 4000 and
+    # the RTC media range below (40000-49999 UDP+TCP) must be open in the firewall.
+    network_mode: host
     stop_grace_period: 30s
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       - PORT=4000
       - NODE_ID=${SFU_NODE_ID:-sfu-1}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-tradingroom_redis}@redis:6379
-      - RTC_MIN_PORT=10000
-      - RTC_MAX_PORT=10100
-      - ANNOUNCED_IP=${SFU_ANNOUNCED_IP}
+      # Under host networking the bridge `redis` DNS name is unavailable; reach
+      # Redis via its host-published port. In production point this at your
+      # Redis host/endpoint.
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-tradingroom_redis}@localhost:6379
+      # These names MUST match what sfu/src/config reads (the MEDIASOUP_* prefix);
+      # the old RTC_MIN_PORT/RTC_MAX_PORT/ANNOUNCED_IP were silently ignored.
+      - MEDIASOUP_RTC_MIN_PORT=40000
+      - MEDIASOUP_RTC_MAX_PORT=49999
+      # The host's PUBLIC IPv4 — clients connect here for media. Must be set.
+      - MEDIASOUP_ANNOUNCED_IP=${SFU_ANNOUNCED_IP}
       - MEDIASOUP_LOG_LEVEL=warn
     depends_on:
       - redis
-    networks:
-      - tradingroom-network
     # Required for Mediasoup
     cap_add:
       - SYS_NICE
