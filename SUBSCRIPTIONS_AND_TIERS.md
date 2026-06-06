@@ -145,7 +145,7 @@ VALUES
 - [ ] **Cloudflare R2** bucket + API token → `R2_*` set.
 - [ ] **Stripe** products/prices created → IDs seeded into `plans`; webhook endpoint added → `STRIPE_SECRET` + `STRIPE_WEBHOOK_SECRET` + `STRIPE_KEY` set.
 - [ ] **TURN** server running (coturn or managed) → `TURN_SERVER_*` set; UDP ports open.
-- [ ] **SFU** host has a public IP → `SFU_ANNOUNCED_IP` + RTC UDP/TCP port range (10000–10100) open.
+- [ ] **SFU** host has a public IP → `SFU_ANNOUNCED_IP` (→ `MEDIASOUP_ANNOUNCED_IP`) + RTC UDP/TCP port range (40000–49999) open; SFU runs with host networking (see `docs/MEDIA_INFRASTRUCTURE.md`).
 - [ ] **Domain + TLS** → `app.<domain>` (frontend), `api.<domain>` (Rust API), `signaling.<domain>` (WSS); `APP_URL`, `CORS_ORIGINS`, `PUBLIC_SIGNALING_URL` set.
 - [ ] **Secrets** generated → strong `JWT_SECRET` and `SIGNALING_SECRET` (shared between the API and `signaling-rs`/signaling).
 - [ ] *(Recommended)* Transactional email provider configured (only needed once email flows are enabled).

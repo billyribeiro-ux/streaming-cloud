@@ -90,36 +90,42 @@ Open on the **App host**: `80`, `443` (HTTP/WSS).
 
 ---
 
-## 5. ⚠️ Required config corrections (fix before launch)
+## 5. ✅ Config corrections (applied)
 
-Two mismatches in the current compose/SFU config will **break direct connectivity
-and force TURN relay** (extra latency) or fail calls:
+Two mismatches in the original compose/SFU config would have **broken direct
+connectivity and forced TURN relay** (extra latency) or failed calls. **Both are
+now fixed** in `infrastructure/docker/docker-compose.yml`:
 
-1. **Env‑name mismatch.** `sfu/src/config/*.ts` reads
+1. **Env‑name mismatch (fixed).** `sfu/src/config/*.ts` reads
    `MEDIASOUP_ANNOUNCED_IP`, `MEDIASOUP_RTC_MIN_PORT`, `MEDIASOUP_RTC_MAX_PORT`,
-   but `docker-compose.yml` sets `ANNOUNCED_IP`, `RTC_MIN_PORT`, `RTC_MAX_PORT`.
-   → the SFU **ignores them** and falls back to defaults (no announced IP, ports
-   10000–59999). **Fix:** rename the compose vars to the `MEDIASOUP_*` names.
-2. **Published port range ≠ worker range.** Compose publishes only
-   `10000–10100` but the worker default is `10000–59999`. **Fix:** make them
-   identical.
+   but the compose previously set `ANNOUNCED_IP`, `RTC_MIN_PORT`, `RTC_MAX_PORT`
+   — so the SFU silently ignored them and fell back to defaults (no announced IP,
+   ports 10000–59999). The compose vars are now renamed to the `MEDIASOUP_*`
+   names. `sfu/.env.example` and `.env.example` were corrected too.
+2. **Port range (fixed).** The range is now a single ~10k‑port window
+   (`40000–49999`) for both the worker and the firewall.
 
-**Recommended fix (best latency): run the SFU with host networking** on its
+**Applied fix (best latency): the SFU runs with host networking** on its
 dedicated box — no Docker UDP NAT, no per‑port publish explosion, lowest latency:
 
 ```yaml
-# docker-compose (SFU host)
+# infrastructure/docker/docker-compose.yml — sfu service (as shipped)
 sfu:
-  network_mode: host          # bind host ports directly
+  network_mode: host          # bind host ports directly (no Docker NAT)
   environment:
     - MEDIASOUP_ANNOUNCED_IP=${SFU_ANNOUNCED_IP}   # the host's PUBLIC IPv4
     - MEDIASOUP_RTC_MIN_PORT=40000
     - MEDIASOUP_RTC_MAX_PORT=49999
+    # host networking → reach Redis via its host-published port:
+    - REDIS_URL=redis://:${REDIS_PASSWORD}@localhost:6379
 ```
-(If you keep bridge networking instead, publish the **exact same** UDP+TCP range
-you set in `MEDIASOUP_RTC_MIN/MAX_PORT`.)
 
-> I can apply this compose change for you — say the word.
+> **Note on host networking:** the SFU no longer joins the Docker bridge, so
+> `SFU_NODES` (used by signaling to reach the SFU control-plane) must point at the
+> SFU host's reachable address (e.g. `sfu1.<domain>:4000`), not the bridge service
+> name. On a single dev box, the host-published `4000` works. If you ever revert
+> to bridge networking, publish the **exact same** UDP+TCP range you set in
+> `MEDIASOUP_RTC_MIN/MAX_PORT`.
 
 ---
 
