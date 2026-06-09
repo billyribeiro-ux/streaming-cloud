@@ -7,7 +7,6 @@ import type {
   DtlsParameters,
   RtpCapabilities,
   RtpParameters,
-  SctpCapabilities,
 } from 'mediasoup/types';
 import type { RouterManager } from '../routers/RouterManager.js';
 import { config } from '../config/index.js';
@@ -73,10 +72,12 @@ export function apiRouter(routerManager: RouterManager): Router {
         direction: 'send' | 'recv';
         sctpCapabilities?: unknown;
       };
+      // mediasoup 3.20 no longer accepts per-transport SCTP stream counts; a
+      // client that advertises SCTP capabilities just enables the association.
       const t = await routerManager.createTransport(
         routerId,
         direction,
-        sctpCapabilities as SctpCapabilities | undefined
+        sctpCapabilities != null
       );
       res.json(t);
     } catch (e) {
@@ -378,7 +379,7 @@ function buildWhipSdpAnswer(
     }[];
     dtlsParameters: {
       fingerprints: { algorithm: string; value: string }[];
-      role: string;
+      role?: string;
     };
   },
   _sdpOffer: string
