@@ -163,7 +163,7 @@ export class RouterManager {
   async createTransport(
     routerId: string,
     direction: 'send' | 'recv',
-    sctpCapabilities?: MediasoupTypes.SctpCapabilities
+    enableSctp = false
   ): Promise<TransportInfo> {
     const roomRouter = this.routers.get(routerId);
     if (!roomRouter) {
@@ -172,8 +172,7 @@ export class RouterManager {
 
     const transport = await roomRouter.router.createWebRtcTransport({
       ...webRtcTransportOptions,
-      enableSctp: !!sctpCapabilities,
-      numSctpStreams: sctpCapabilities?.numStreams,
+      enableSctp,
       appData: { direction },
     });
 
