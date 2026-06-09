@@ -1,0 +1,102 @@
+# =============================================================================
+# Stack Smoke Test
+# =============================================================================
+# Boots the no-external-dependency slice of the stack (Redis + coturn + the
+# mediasoup SFU) with ephemerally generated secrets, and asserts each comes up.
+# This is what cannot be run in the sandboxed dev container (Docker Hub pull
+# limits) — GitHub-hosted runners have image access, so the real boot happens here.
+#
+# It deliberately does NOT start the DB-backed services (api-rs, signaling,
+# pgbouncer) — those need a real DATABASE_URL and are covered by ci-cd.yml.
+# =============================================================================
+
+name: Stack Smoke Test
+
+on:
+  push:
+    branches: [main, develop, 'claude/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-smoke:
+    name: Boot Redis + coturn + SFU
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE: docker compose --env-file .env -f infrastructure/docker/docker-compose.yml
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Generate .env with ephemeral secrets
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          SIG=$(openssl rand -hex 32)   # SIGNALING_SECRET = SIGNALING_SERVER_SECRET = SFU_SECRET
+          JWT=$(openssl rand -hex 32)
+          TURN=$(openssl rand -hex 32)
+          REDIS=$(openssl rand -hex 16)
+          IP=$(hostname -I | awk '{print $1}')
+          sed -i \
+            -e "s|^SIGNALING_SECRET=$|SIGNALING_SECRET=${SIG}|" \
+            -e "s|^JWT_SECRET=$|JWT_SECRET=${JWT}|" \
+            -e "s|^SIGNALING_SERVER_SECRET=$|SIGNALING_SERVER_SECRET=${SIG}|" \
+            -e "s|^SFU_SECRET=$|SFU_SECRET=${SIG}|" \
+            -e "s|^TURN_AUTH_SECRET=$|TURN_AUTH_SECRET=${TURN}|" \
+            -e "s|^REDIS_PASSWORD=$|REDIS_PASSWORD=${REDIS}|" \
+            -e "s|^REDIS_URL=redis://127.0.0.1:6379$|REDIS_URL=redis://:${REDIS}@127.0.0.1:6379|" \
+            -e "s|^SFU_ANNOUNCED_IP=127.0.0.1$|SFU_ANNOUNCED_IP=${IP}|" \
+            -e "s|^TURN_EXTERNAL_IP=127.0.0.1$|TURN_EXTERNAL_IP=${IP}|" \
+            .env
+          echo "Runner IP: ${IP}"
+
+      - name: Validate compose config
+        run: $COMPOSE config -q
+
+      - name: Build SFU image
+        run: $COMPOSE build sfu
+
+      - name: Start Redis + coturn + SFU
+        run: $COMPOSE up -d redis coturn sfu
+
+      - name: Wait for SFU /health
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
+              echo "SFU healthy after $((i*3))s"; exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::SFU did not become healthy"; exit 1
+
+      - name: Assert Redis answers with the generated password
+        run: |
+          set -euo pipefail
+          PW=$(grep -E '^REDIS_PASSWORD=' .env | cut -d= -f2-)
+          docker exec tradingroom-redis \
+            redis-cli -a "$PW" --no-auth-warning ping | grep -q PONG
+          echo "Redis PONG with generated password"
+
+      - name: Assert coturn is listening on 3478/udp
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 15); do
+            if ss -uln | grep -q ':3478'; then echo "coturn bound UDP/3478"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::coturn not listening on 3478"; docker logs tradingroom-turn | tail -40; exit 1
+
+      - name: Dump logs on failure
+        if: failure()
+        run: $COMPOSE logs --tail=120
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v
