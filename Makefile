@@ -45,13 +45,13 @@ clean: ## Clean build artifacts
 	rm -rf frontend-svelte/node_modules signaling/node_modules sfu/node_modules
 
 docker-up: ## Start Docker services
-	docker compose -f infrastructure/docker/docker-compose.yml up -d
+	docker compose --env-file .env -f infrastructure/docker/docker-compose.yml up -d
 
 docker-down: ## Stop Docker services
-	docker compose -f infrastructure/docker/docker-compose.yml down
+	docker compose --env-file .env -f infrastructure/docker/docker-compose.yml down
 
 docker-build: ## Build Docker images
-	docker compose -f infrastructure/docker/docker-compose.yml build
+	docker compose --env-file .env -f infrastructure/docker/docker-compose.yml build
 
 migrate: ## Apply database migrations (sqlx)
 	cd backend-rs && sqlx migrate run --source crates/api/migrations
